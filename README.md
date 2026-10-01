@@ -2,7 +2,7 @@
 
 Windows PC를 Host(원격 제어 대상) 또는 Client(원격 제어 장치)로 사용하고, Windows·iPhone·Android에서 같은 서비스와 프로토콜로 연결하는 원격 데스크톱 프로젝트입니다.
 
-> **개발 원칙:** 우선 같은 LAN에서 Windows 화면을 전송하고 마우스 입력을 처리합니다. 그 뒤 모바일, 인증, 인터넷 연결 순서로 확장합니다. 이 문서는 설계 계획이며, 아직 애플리케이션 코드는 포함하지 않습니다.
+> **개발 원칙:** 우선 같은 LAN에서 Windows 화면을 전송하고 마우스 입력을 처리합니다. 그 뒤 모바일, 인증, 인터넷 연결 순서로 확장합니다. STEP 1의 현재 구현은 캡처 동작 확인용 Windows Host 프로토타입입니다.
 
 ## 1. 전체 시스템 아키텍처
 
@@ -40,7 +40,7 @@ React Native는 JavaScript/TypeScript 생태계와 네이티브 모듈을 활용
 
 Windows 10 버전 1903 이상을 우선 대상으로 **Windows Graphics Capture (WGC)** 를 검토합니다. 최신 Windows 그래픽 경로와 프레임 업데이트를 활용하기 적합합니다. 모니터 단위 캡처와 낮은 지연이 더 중요한 경우 **Desktop Duplication API**를 대안으로 평가합니다. 캡처 경로는 인터페이스 뒤에 두어 OS 버전·드라이버별 대체가 가능하도록 합니다.
 
-초기 캡처 검증은 화면을 파일로 저장해 정확성을 확인하고, 이후 프레임을 인코더로 전달합니다. 캡처 프레임과 사용자 세션이 분리되는 서비스 구조는 피하고, 첫 구현은 로그인된 데스크톱에서 실행합니다.
+초기 캡처 검증은 화면을 파일로 저장해 정확성을 확인하고, 이후 프레임을 인코더로 전달합니다. STEP 1은 외부 패키지 없이 동작하는 GDI 캡처 프로토타입이며, 전체 가상 화면을 BMP로 저장합니다. 영상 스트리밍에 진입하기 전 WGC를 구현해 프레임 캡처 경로를 교체·검증합니다. 캡처 프레임과 사용자 세션이 분리되는 서비스 구조는 피하고, 첫 구현은 로그인된 데스크톱에서 실행합니다.
 
 ## 7. 영상 인코딩
 
@@ -92,7 +92,7 @@ Windows `SendInput`은 일반 데스크톱 입력에 쓸 수 있지만, 보안 �
 
 ## 14. LAN 개발 방법
 
-1. Windows Host에서 WGC 캡처 결과를 이미지 파일로 저장해 화면과 다중 모니터 동작을 확인합니다.
+1. Windows Host에서 전체 가상 화면 캡처 결과를 BMP 파일로 저장해 화면과 다중 모니터 동작을 확인합니다. 현재는 GDI 프로토타입이며 영상 전송 전 WGC로 교체합니다.
 2. Host와 Windows Client를 같은 Wi-Fi/LAN에 두고 TLS 연결로 프레임 전송·표시를 확인합니다.
 3. 제어 메시지를 분리해 정규화 좌표의 마우스 이동과 클릭을 추가하고, Host에서 허용된 사용자 세션에만 적용합니다.
 4. 전송 계층과 Protocol을 분리한 상태에서 Flutter Client를 연결하고 iPhone·Android 실기기에서 표시·터치 입력을 검증합니다.
@@ -140,6 +140,8 @@ remodesktop/
 │   ├── RemoteDesktop.sln
 │   ├── Host/
 │   │   └── RemoteDesktop.Host/
+│   │       ├── RemoteDesktop.Host.csproj
+│   │       └── Program.cs
 │   ├── Client/
 │   │   └── RemoteDesktop.Client/
 │   ├── Core/
@@ -158,8 +160,46 @@ remodesktop/
 └── README.md
 ```
 
-## 20. 다음 단계
+## 20. STEP 1 - Windows Host 화면 캡처
 
-첫 번째 구현 단계에서는 Windows 개발 환경에서 Host 프로젝트를 만들고, 화면 캡처를 파일로 저장해 확인합니다. 지금은 설계만 설명했으며 코드는 아직 작성하지 않았습니다. 실제 구현을 시작하면 생성할 폴더·파일, 전체 코드, Windows 실행 명령, 테스트 방법, 예상 결과와 자주 발생하는 오류 해결 방법을 단계별로 안내합니다.
+### 생성한 프로젝트와 파일
 
-STEP 1부터 시작하려면 '시작'이라고 입력하세요.
+```text
+windows/
+├── RemoteDesktop.sln
+└── Host/
+    └── RemoteDesktop.Host/
+        ├── RemoteDesktop.Host.csproj
+        └── Program.cs
+```
+
+`RemoteDesktop.Host.csproj`는 .NET 8 콘솔 프로젝트 설정입니다. `Program.cs`는 Windows GDI API로 현재 로그인된 데스크톱의 전체 가상 화면을 한 번 캡처해 32비트 BMP 파일로 저장합니다. 별도 NuGet 패키지는 사용하지 않습니다. `windows/RemoteDesktop.sln`은 Visual Studio에서 솔루션 전체를 여는 파일입니다.
+
+현재 작업 폴더가 저장소의 최상위 폴더인 PowerShell에서 실행합니다. 저장소를 다른 위치에 clone했어도 같은 명령을 사용할 수 있습니다.
+
+```powershell
+dotnet build ".\windows\RemoteDesktop.sln"
+dotnet run --project ".\windows\Host\RemoteDesktop.Host\RemoteDesktop.Host.csproj" -- (Join-Path $PWD "captures\step1.bmp")
+Get-Item ".\captures\step1.bmp" | Select-Object FullName, Length
+Start-Process ".\captures\step1.bmp"
+```
+
+`dotnet run`은 프로젝트를 빌드한 다음 캡처 프로그램을 실행합니다. 출력 폴더가 없으면 자동으로 만듭니다. 파일 인수를 생략하면 실행 중인 현재 폴더의 `captures`에 시간 정보를 붙인 파일명을 사용합니다. 캡처 대상은 주 모니터에 한정하지 않고 Windows 가상 화면 경계 전체이므로, 배치된 여러 모니터가 하나의 이미지에 포함됩니다.
+
+### 테스트 및 예상 결과
+
+1. Windows 10/11에 .NET 8 SDK를 설치하고, 실제 데스크톱에 로그인한 상태로 위 명령을 실행합니다.
+2. 빌드가 성공하고 `화면 캡처 완료` 및 이미지의 픽셀 크기가 출력되는지 확인합니다.
+3. `Get-Item`에서 파일 크기가 0보다 큰지 확인하고, 이미지 뷰어에서 현재 화면과 모니터 배치가 보이는지 확인합니다.
+
+Linux 개발 환경에서는 솔루션을 빌드하고 `dotnet run ... -- --help`로 사용법을 확인할 수 있지만 실제 Windows 화면 캡처는 실행할 수 없습니다.
+
+### 자주 발생하는 문제
+
+* `dotnet` 명령을 찾지 못하면 Windows에 .NET 8 SDK를 설치하고 새 PowerShell 창에서 다시 실행합니다.
+* 권한 오류가 나면 저장소 폴더에 쓰기 권한이 있는지 확인하고, 출력 BMP 경로가 아닌 저장소 최상위 폴더에서 명령을 실행했는지 확인합니다.
+* 확장자 오류가 나면 출력 파일 이름 끝이 `.bmp`인지 확인합니다.
+* 검은 화면이나 캡처 실패가 있으면 Windows 데스크톱에 로그인되어 있고 화면이 잠기지 않았는지 확인합니다. 이 프로토타입은 서비스나 잠금/UAC 보안 데스크톱 캡처용이 아닙니다. 보호된 화면이나 일부 GPU 표면은 캡처되지 않을 수 있습니다.
+* BMP는 압축되지 않아 해상도가 높을수록 파일이 큽니다. 이 단계의 결과 파일을 저장소에 추가하지 마세요.
+
+이 단계의 목표는 화면 캡처와 파일 저장을 확인하는 것입니다. GDI 방식은 이 검증용 기반 구현이며, 실시간 프레임 전달을 시작하기 전에 Windows Graphics Capture(WGC) 기반 캡처로 발전시킵니다.
