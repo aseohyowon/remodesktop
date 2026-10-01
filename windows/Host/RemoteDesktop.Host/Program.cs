@@ -117,7 +117,12 @@ internal static class Program
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
 
-            SelectObject(memoryDc, previousBitmap);
+            IntPtr deselectedBitmap = SelectObject(memoryDc, previousBitmap);
+            if (deselectedBitmap == IntPtr.Zero || deselectedBitmap == new IntPtr(-1))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
             previousBitmap = IntPtr.Zero;
 
             var header = new BitmapInfoHeader
@@ -144,7 +149,12 @@ internal static class Program
 
             if (rowsCopied != height)
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+                throw new InvalidOperationException($"화면 픽셀을 읽지 못했습니다 ({rowsCopied}/{height} 줄).");
+            }
+
+            for (int i = 3; i < pixels.Length; i += 4)
+            {
+                pixels[i] = byte.MaxValue;
             }
 
             WriteBitmap(outputPath, width, height, pixels);
