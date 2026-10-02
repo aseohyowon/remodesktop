@@ -45,6 +45,9 @@ internal sealed class SessionFeatures : IDisposable
         }
     }
 
+    /// <summary>소리 전송 (미디어 트랙 모드 전환용)</summary>
+    internal AudioStreamer? Audio => _audio;
+
     /// <summary>부가 기능 메시지면 처리하고 true</summary>
     public async Task<bool> TryHandleAsync(ReceivedMessage message)
     {

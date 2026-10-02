@@ -79,6 +79,8 @@ remodesktop/
 | `DesktopThread` | 입력 데스크톱(Default ↔ Winlogon)을 따라가는 전용 스레드. 서비스 모드에서 캡처·입력을 여기서 실행 |
 | `AgentSupervisor` | 서비스: 콘솔 세션에 에이전트 하나 유지 (세션 변경 시 교체, 죽으면 1~30초 간격 재시작) |
 | `SessionAgentLauncher` | SYSTEM 토큰 복제 + 세션 번호 변경 → `CreateProcessAsUser`, Job Object(서비스 종료 시 에이전트도 종료) |
+| `HostMediaSession` / `MediaTrackSender` | (STEP 14) 모바일·맥용 WebRTC 미디어 트랙 협상, H.264 RTP/Opus 송신, RTCP 보고서·PLI 처리, 실패 시 채널로 복귀 |
+| `OpusPacketizer` | 시스템 소리(float, 장치 샘플레이트) → 48 kHz 스테레오 Opus 20 ms 패킷 (Concentus) |
 | `SasPipe` | 에이전트 → 서비스 Ctrl+Alt+Del 요청 (이름 있는 파이프, 같은 계정만, 에이전트 PID 확인, 2초 제한) → `SendSAS` |
 
 ### Windows 서비스 모드 (STEP 13)
@@ -125,6 +127,19 @@ remodesktop/
 | iPhone/Android/macOS | JPEG | Flutter에서 바로 디코딩. H.264는 네이티브 디코더 플러그인이 필요 (향후) |
 
 Host는 `hello.codecs`를 보고 고릅니다. GPU 인코더(NVENC/Quick Sync/AMF)를 먼저 시도하고, 실패하면 CPU 인코더, 그래도 실패하면 JPEG로 바꿉니다.
+
+## 6-1. 모바일·맥 영상 경로 (STEP 14)
+
+```text
+ Host                                                     앱 (Flutter, flutter_webrtc = libwebrtc)
+ 캡처 → H.264 인코더 ─┬─ 채널(TLS/DataChannel) 프레임 ──► (JPEG만 표시 가능, 대체 경로)
+                      └─ WebRTC 영상 트랙(RTP, SRTP) ─────► 하드웨어 디코더 → RTCVideoView
+ WASAPI → Opus ────────── WebRTC 오디오 트랙 ────────────► 기기 스피커
+           ▲ RTCP RR(RTT·손실) / PLI ◄────────────────────
+```
+
+앱은 연결 직후 JPEG로 화면을 보다가, 미디어 연결이 되면(`media_state` active) 영상 트랙으로 바꿉니다.
+미디어 연결이 안 되거나 끊기면 다시 JPEG로 돌아가므로 어떤 네트워크에서도 화면은 보입니다.
 
 ## 7. 스레드
 

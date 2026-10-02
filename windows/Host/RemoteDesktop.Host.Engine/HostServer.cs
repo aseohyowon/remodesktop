@@ -76,6 +76,9 @@ public sealed class HostServer
 
     internal bool CanChangeResolution => Options.AllowResolutionChange && !Options.ViewOnly;
 
+    /// <summary>미디어 트랙은 H.264를 쓰므로 --codec jpeg면 끕니다.</summary>
+    internal bool CanUseMediaTrack => Options.AllowMediaTrack && Options.Codec != VideoCodecNames.Jpeg;
+
     /// <summary>
     /// Ctrl+Alt+Del 보내기 (STEP 13). Windows 서비스 모드의 에이전트만 설정합니다.
     /// 성공하면 null, 실패하면 오류 문구를 돌려줍니다.
@@ -347,6 +350,7 @@ public sealed class HostServer
         if (Options.AllowMonitorSelect) features.Add(HostFeatures.MonitorSelect);
         if (CanChangeResolution) features.Add(HostFeatures.Display);
         if (SecureAttention is not null && !Options.ViewOnly) features.Add(HostFeatures.SecureAttention);
+        if (CanUseMediaTrack) features.Add(HostFeatures.MediaTrack);
         return features.ToArray();
     }
 

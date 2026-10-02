@@ -137,6 +137,24 @@ WebRTC Data Channel은 메시지 단위이므로, 아래 바이트 스트림을 
 
 Host가 Windows 서비스로 실행 중이고 화면만 보기가 아닐 때만 `features`에 `sas`가 있습니다. 없으면 Client는 안내 문구만 보여 줍니다.
 
+### WebRTC 미디어 트랙 (STEP 14, 기능 이름 `media_track`)
+
+모바일·맥 앱은 Dart에서 H.264를 디코딩할 수 없으므로, 화면(H.264)과 소리(Opus)를 **WebRTC 미디어 트랙**으로 받아
+libwebrtc의 하드웨어 디코더로 보여 줍니다. SDP는 이미 인증된 채널 안에서 주고받습니다.
+
+| type | 방향 | 필드 |
+|---|---|---|
+| `media_offer` | C→H | `sdp` — recvonly 영상·소리 트랜시버 |
+| `media_answer` | H→C | `sdp` — H.264(packetization-mode=1, `nack pli`/`ccm fir` 선언) + Opus 48 kHz 스테레오, sendonly |
+| `media_ice` | 양방향 | `candidate`, `sdp_mid`, `sdp_mline_index` |
+| `media_state` | H→C | `active`, `error`? — true: 이제 영상은 트랙으로만 (채널 영상 프레임 중지), false: 채널 JPEG로 계속 |
+| `audio` | C→H | `action`: start/stop — 트랙 모드에서는 Opus로 트랙에 보냄 |
+
+- ICE 서버: LAN 연결이면 없음(같은 네트워크의 host 후보), 인터넷 연결이면 시그널링 서버가 준 STUN/TURN을 양쪽이 그대로 씀
+- 흐름 제어: ack 대신 RTCP 수신 보고서(RTT, 손실률)로 적응형 화질, PLI/FIR을 받으면 인코더를 새로 만들어 IDR(1초에 한 번까지)
+- `stream_stats`는 계속 채널로 옵니다 (codec `h264`)
+- Host 옵션 `--no-media-track` 또는 `--codec jpeg`면 `media_track` 기능을 알리지 않습니다
+
 ## 4. 인증 계산
 
 ```text

@@ -41,6 +41,10 @@ namespace RemoteDesktop.Protocol;
 [JsonDerivedType(typeof(DisplayResultMessage), "display_result")]
 [JsonDerivedType(typeof(SendSasMessage), "send_sas")]
 [JsonDerivedType(typeof(SasResultMessage), "sas_result")]
+[JsonDerivedType(typeof(MediaOfferMessage), "media_offer")]
+[JsonDerivedType(typeof(MediaAnswerMessage), "media_answer")]
+[JsonDerivedType(typeof(MediaIceMessage), "media_ice")]
+[JsonDerivedType(typeof(MediaStateMessage), "media_state")]
 public abstract record ControlMessage;
 
 /// <summary>
@@ -116,6 +120,9 @@ public static class HostFeatures
 
     /// <summary>Ctrl+Alt+Del 보내기 (STEP 13, Host가 Windows 서비스로 실행 중일 때만)</summary>
     public const string SecureAttention = "sas";
+
+    /// <summary>WebRTC 미디어 트랙(H.264 영상 + Opus 소리)으로 받기 (STEP 14, 모바일·맥 앱)</summary>
+    public const string MediaTrack = "media_track";
 }
 
 public static class AuthMethods
@@ -256,6 +263,25 @@ public sealed record DisplayResultMessage(bool Success, DisplayMode? Current = n
 public sealed record SendSasMessage() : ControlMessage;
 
 public sealed record SasResultMessage(bool Success, string? Error = null) : ControlMessage;
+
+// ---------------- STEP 14: WebRTC 미디어 트랙 ----------------
+// 인증이 끝난 암호화 채널(TLS 또는 Data Channel) 안에서 SDP를 주고받으므로,
+// 미디어 연결의 DTLS 지문도 인증된 상대의 것임이 보장됩니다.
+
+/// <summary>Client → Host. 받기 전용(recvonly) 영상/소리 트랜시버를 담은 SDP offer</summary>
+public sealed record MediaOfferMessage(string Sdp) : ControlMessage;
+
+/// <summary>Host → Client. H.264 영상 + Opus 소리 송신(sendonly) answer</summary>
+public sealed record MediaAnswerMessage(string Sdp) : ControlMessage;
+
+/// <summary>양방향. ICE 후보 (빈 candidate = 수집 끝)</summary>
+public sealed record MediaIceMessage(string Candidate, string? SdpMid, int? SdpMlineIndex) : ControlMessage;
+
+/// <summary>
+/// Host → Client. active=true: 이제 영상은 미디어 트랙으로만 보냄 (Data Channel/TLS 영상 프레임 중지)
+/// active=false: 미디어 연결 실패/끊김 → 기존 방식(JPEG 프레임)으로 계속
+/// </summary>
+public sealed record MediaStateMessage(bool Active, string? Error = null) : ControlMessage;
 
 public static class ProtocolJson
 {

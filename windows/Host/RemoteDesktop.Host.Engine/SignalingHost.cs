@@ -115,7 +115,7 @@ internal sealed class SignalingHost(HostServer server)
                         var peer = new WebRtcPeer(request.SessionId, isHost: true, request.IceServers, Send);
                         peers[request.SessionId] = peer;
                         await peer.StartAsHostAsync();
-                        _ = RunPeerAsync(peer, address, peers, cancellationToken);
+                        _ = RunPeerAsync(peer, address, request.IceServers, peers, cancellationToken);
                         break;
 
                     case SdpSignal sdp when peers.TryGetValue(sdp.SessionId, out var target):
@@ -146,7 +146,7 @@ internal sealed class SignalingHost(HostServer server)
         }
     }
 
-    private async Task RunPeerAsync(WebRtcPeer peer, IPAddress? address, ConcurrentDictionary<string, WebRtcPeer> peers, CancellationToken cancellationToken)
+    private async Task RunPeerAsync(WebRtcPeer peer, IPAddress? address, IceServerInfo[] iceServers, ConcurrentDictionary<string, WebRtcPeer> peers, CancellationToken cancellationToken)
     {
         WebRtcConnection connection;
         try
@@ -164,7 +164,7 @@ internal sealed class SignalingHost(HostServer server)
         peers.TryRemove(peer.SessionId, out _);
         string description = $"{address?.ToString() ?? "unknown"} (internet)";
         Log.Info($"Client connected: {description}");
-        var transport = new HostTransport(connection.Stream, connection.ChannelBinding, address, description, "webrtc");
+        var transport = new HostTransport(connection.Stream, connection.ChannelBinding, address, description, "webrtc", iceServers);
         await server.RunSessionAsync(transport, null, cancellationToken);
         Log.Info($"Client disconnected: {description}");
     }

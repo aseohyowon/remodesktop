@@ -7,13 +7,15 @@ namespace RemoteDesktop.Host.Engine;
 /// - LAN: TLS 스트림, channel_binding = Host 인증서 SHA-256
 /// - 인터넷(STEP 7): WebRTC Data Channel, channel_binding = DTLS 지문 해시
 /// 이 위의 인증·화면·입력 처리는 전송 방식과 관계없이 같습니다.
+/// IceServers: 미디어 트랙(STEP 14)에 쓸 STUN/TURN (인터넷 연결일 때 시그널링 서버가 준 값, LAN이면 없음)
 /// </summary>
 public sealed record HostTransport(
     Stream Stream,
     byte[] ChannelBinding,
     IPAddress? RemoteAddress,
     string RemoteDescription,
-    string Kind);
+    string Kind,
+    RemoteDesktop.Protocol.IceServerInfo[]? IceServers = null);
 
 public sealed record ApprovalRequest(string ClientName, string Platform, string Remote, string Method);
 

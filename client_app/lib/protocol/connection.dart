@@ -81,6 +81,9 @@ abstract class ClientTransport {
   Uint8List? get pinnedFingerprint;
 
   String get kind;
+
+  /// 미디어 트랙(STEP 14)에 쓸 STUN/TURN. LAN이면 없음, 인터넷이면 시그널링 서버가 준 값
+  List<Map<String, dynamic>> get iceServers;
 }
 
 class TlsTransport implements ClientTransport {
@@ -95,6 +98,9 @@ class TlsTransport implements ClientTransport {
 
   @override
   String get kind => 'lan';
+
+  @override
+  List<Map<String, dynamic>> get iceServers => const [];
 
   @override
   Stream<List<int>> get input => _socket;
@@ -172,6 +178,8 @@ class RemoteHostConnection {
   Future<String> get closed => _closed.future;
 
   String get transportKind => _transport.kind;
+
+  List<Map<String, dynamic>> get iceServers => _transport.iceServers;
 
   static Future<RemoteHostConnection> authenticate({
     required ClientTransport transport,

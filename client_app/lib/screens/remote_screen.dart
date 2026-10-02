@@ -23,18 +23,23 @@ import 'package:path_provider/path_provider.dart';
 import '../input/key_map.dart';
 import '../input/soft_keyboard.dart';
 import '../input/touch_gestures.dart';
+import '../media/media_track.dart';
+import '../media/webrtc_media_peer.dart';
 import '../protocol/connection.dart';
 import '../protocol/file_transfer.dart';
 import '../protocol/protocol.dart';
 
 class RemoteScreen extends StatefulWidget {
-  const RemoteScreen({super.key, required this.connection, required this.title, this.reconnect});
+  const RemoteScreen({super.key, required this.connection, required this.title, this.reconnect, this.mediaPeerFactory});
 
   final RemoteHostConnection connection;
   final String title;
 
   /// 연결이 끊겼을 때 다시 연결하는 함수 (없으면 자동 재연결 안 함)
   final Future<RemoteHostConnection> Function()? reconnect;
+
+  /// 미디어 트랙(STEP 14) 수신기 생성 함수. 없으면 Android/iOS/macOS에서는 flutter_webrtc, 그 밖에서는 사용 안 함
+  final MediaPeerFactory? mediaPeerFactory;
 
   @override
   State<RemoteScreen> createState() => _RemoteScreenState();
@@ -56,6 +61,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   bool _reconnecting = false;
 
   // 화면
+  MediaTrackClient? _media; // STEP 14: H.264 영상/Opus 소리 트랙
+  bool _audioOn = false;
+  bool _mediaFallbackShown = false;
   StreamSubscription<VideoFrame>? _frameSubscription;
   ui.Image? _image;
   bool _decoding = false;
@@ -123,6 +131,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _frameSubscription?.cancel();
     _controlSubscription?.cancel();
     _files?.dispose();
+    unawaited(_disposeMedia());
     _connection.close();
     _image?.dispose();
     _focusNode.dispose();
@@ -145,6 +154,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _connection = connection;
     _frameSubscription = connection.frames.listen(_onFrame);
     _controlSubscription = connection.controls.listen(_onControl);
+    _startMedia(connection);
     unawaited(_downloadFolder().then((folder) {
       if (mounted && identical(_connection, connection)) _files = FileTransfers(connection, folder);
     }));
@@ -166,6 +176,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _releaseAll();
     await _frameSubscription?.cancel();
     await _controlSubscription?.cancel();
+    await _disposeMedia();
     _files?.dispose();
     _files = null;
 
@@ -200,6 +211,51 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     }
   }
 
+  // ======================= 미디어 트랙 (STEP 14) =======================
+
+  static MediaPeerFactory? get _defaultMediaFactory =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) ? WebRtcMediaPeer.create : null;
+
+  /// Host가 지원하면 H.264 영상 트랙을 요청합니다. 안 되면 지금처럼 JPEG 프레임으로 계속 보입니다.
+  void _startMedia(RemoteHostConnection connection) {
+    final factory = widget.mediaPeerFactory ?? _defaultMediaFactory;
+    if (factory == null || !connection.hasFeature('media_track')) return;
+    final media = MediaTrackClient(send: connection.send, factory: factory, iceServers: connection.iceServers);
+    _media = media;
+    media.active.addListener(_onMediaChanged);
+    unawaited(media.start().then((_) {
+      if (identical(_media, media)) media.peer?.changes.addListener(_onMediaChanged);
+    }));
+  }
+
+  void _onMediaChanged() {
+    if (!mounted) return;
+    final media = _media;
+    if (media != null && !media.active.value && media.error != null && !_mediaFallbackShown) {
+      _mediaFallbackShown = true;
+      _snack('고화질 영상(H.264) 연결이 안 되어 기본 화질로 표시합니다. (${media.error})');
+    }
+    setState(() {});
+  }
+
+  bool get _mediaActive => _media?.active.value == true;
+
+  Future<void> _disposeMedia() async {
+    final media = _media;
+    _media = null;
+    _audioOn = false;
+    if (media == null) return;
+    media.active.removeListener(_onMediaChanged);
+    media.peer?.changes.removeListener(_onMediaChanged);
+    await media.dispose();
+  }
+
+  void _toggleAudio() {
+    setState(() => _audioOn = !_audioOn);
+    _connection.send(audioMessage(_audioOn ? 'start' : 'stop'));
+    _media?.peer?.audioEnabled = _audioOn;
+  }
+
   /// 받은 파일 저장 위치: 다운로드 폴더 → 앱 문서 폴더 → 임시 폴더 순으로 시도
   static Future<String> _downloadFolder() async {
     Directory? folder;
@@ -217,6 +273,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   void _onControl(Map<String, dynamic> message) {
     if (!mounted) return;
+    final media = _media;
+    if (media != null && (message['type'] as String? ?? '').startsWith('media_')) {
+      unawaited(media.handle(message));
+      return;
+    }
     switch (message['type']) {
       case 'stream_stats':
         setState(() => _stats = message);
@@ -396,7 +457,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     final level = (s['quality_level'] as num?)?.toInt() ?? 0;
     final label = rtt < 50 && level == 0 ? '좋음' : (rtt < 150 && level <= 2 ? '보통' : '나쁨');
     final mbps = ((s['kbps'] as num?) ?? 0) / 1000;
-    return '연결 $label · ${mbps.toStringAsFixed(1)} Mbps · $rtt ms';
+    return '연결 $label · ${_mediaActive ? 'H.264 · ' : ''}${mbps.toStringAsFixed(1)} Mbps · $rtt ms';
   }
 
   // ======================= 영상 =======================
@@ -404,7 +465,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   /// JPEG를 순서대로 디코딩합니다. 디코딩 중 새 프레임이 오면 최신 것만 남기고
   /// 건너뛴 프레임은 바로 ack 해서 Host가 멈추지 않게 합니다.
   Future<void> _onFrame(VideoFrame frame) async {
-    if (frame.codec != codecJpeg) {
+    if (frame.codec != codecJpeg || _mediaActive) {
       _connection.ack(frame.frameId);
       return;
     }
@@ -825,6 +886,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   void _onMenu(String action) {
     switch (action) {
+      case 'audio':
+        _toggleAudio();
       case 'lang':
         _tapKeys(['Lang1']);
       case 'win':
@@ -910,9 +973,12 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final image = _image;
-    final remoteSize = image != null
-        ? Size(image.width.toDouble(), image.height.toDouble())
-        : Size(_connection.screenWidth.toDouble(), _connection.screenHeight.toDouble());
+    final mediaPeer = _mediaActive ? _media?.peer : null;
+    final remoteSize = mediaPeer?.videoSize ??
+        (image != null && mediaPeer == null
+            ? Size(image.width.toDouble(), image.height.toDouble())
+            : Size(_connection.screenWidth.toDouble(), _connection.screenHeight.toDouble()));
+    final fps = mediaPeer != null ? ((_stats?['fps'] as num?)?.round() ?? 0) : _fps;
 
     final viewport = LayoutBuilder(builder: (context, constraints) {
       final size = constraints.biggest;
@@ -941,7 +1007,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                   ..translateByDouble(_viewOffset.dx, _viewOffset.dy, 0, 1)
                   ..scaleByDouble(_viewScale, _viewScale, 1, 1),
                 child: Stack(children: [
-                  if (image != null)
+                  if (mediaPeer != null)
+                    Positioned.fromRect(rect: _imageRect, child: mediaPeer.buildView())
+                  else if (image != null)
                     Positioned.fromRect(
                       rect: _imageRect,
                       child: RawImage(image: image, fit: BoxFit.fill, filterQuality: FilterQuality.medium),
@@ -967,7 +1035,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                 title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${widget.title}  ·  ${remoteSize.width.toInt()}x${remoteSize.height.toInt()}  ·  $_fps fps',
+                    Text('${widget.title}  ·  ${remoteSize.width.toInt()}x${remoteSize.height.toInt()}  ·  $fps fps',
                         style: const TextStyle(fontSize: 15)),
                     if (_qualityText.isNotEmpty) Text(_qualityText, style: const TextStyle(fontSize: 11)),
                   ],
@@ -1136,6 +1204,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
           CheckedPopupMenuItem(value: 'cmd', checked: _commandAsControl, child: const Text('⌘ Command → Ctrl')),
         if (_connection.monitors.isNotEmpty) const PopupMenuItem(value: 'monitor', child: Text('모니터 선택')),
         if (_connection.hasFeature('display')) const PopupMenuItem(value: 'resolution', child: Text('PC 해상도')),
+        if (_mediaActive && _connection.hasFeature('audio'))
+          CheckedPopupMenuItem(value: 'audio', checked: _audioOn, child: const Text('PC 소리 듣기')),
         if (_connection.hasFeature('clipboard')) const PopupMenuItem(value: 'clip', child: Text('내 클립보드를 PC로 보내기')),
         if (_connection.hasFeature('file_transfer')) ...[
           const PopupMenuItem(value: 'upload', child: Text('파일 보내기')),

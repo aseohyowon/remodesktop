@@ -86,6 +86,12 @@ channel_binding = LAN: SHA-256(Host TLS 인증서)
 - **Ctrl+Alt+Del**: Secure Attention Sequence라 키 입력으로 만들 수 없습니다. 일반 모드에서는 [작업 관리자(Ctrl+Shift+Esc)]와 [화면 잠금]을 제공합니다.
   → 서비스 모드에서는 서비스가 `SendSAS`로 보냅니다 (Windows 정책 `SoftwareSASGeneration`=1 필요, 설치 스크립트가 설정하고 제거 시 원래 값으로 되돌림).
 
+### 미디어 트랙 (STEP 14)
+
+- 미디어 연결의 SDP(DTLS 지문 포함)는 이미 상호 인증·암호화된 채널 안에서만 주고받으므로, 영상·소리를 받는 상대는 인증된 Client뿐입니다.
+- 영상·소리는 DTLS-SRTP로 암호화됩니다. 인증 전에는 `media_offer`를 받지 않고, 세션마다 한 번만 만들 수 있습니다.
+- LAN 연결이면 ICE 서버 없이 같은 네트워크 주소로만 연결됩니다.
+
 ### Windows 서비스 모드의 보안 설계 (STEP 13)
 
 서비스 모드의 에이전트는 SYSTEM 권한이므로 원격 사용자는 사실상 PC 전체를 다룰 수 있습니다. 그래서:

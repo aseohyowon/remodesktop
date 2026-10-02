@@ -83,6 +83,9 @@ public sealed record HostOptions
     /// </summary>
     public bool FollowInputDesktop { get; init; }
 
+    /// <summary>모바일·맥 앱에 WebRTC 미디어 트랙(H.264 + Opus)으로 보내기 (STEP 14)</summary>
+    public bool AllowMediaTrack { get; init; } = true;
+
     public static HostOptions Parse(string[] args)
     {
         var options = new HostOptions();
@@ -114,6 +117,7 @@ public sealed record HostOptions
                 "--allow-power" => options with { AllowPower = true },
                 "--no-discovery" => options with { Discoverable = false },
                 "--no-resolution-change" => options with { AllowResolutionChange = false },
+                "--no-media-track" => options with { AllowMediaTrack = false },
                 _ => throw new ArgumentException($"알 수 없는 옵션입니다: {args[i]}")
             };
         }

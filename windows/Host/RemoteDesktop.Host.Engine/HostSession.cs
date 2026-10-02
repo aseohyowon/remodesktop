@@ -76,9 +76,12 @@ internal sealed class HostSession
         using var features = new SessionFeatures(_server, channel, _transport.RemoteDescription, auth.ClientName, token);
         using var display = new DisplaySession(_server.DisplayController); // 세션이 끝나면 바꾼 해상도를 되돌림
         using var sleepBlocker = new SleepBlocker();                        // 연결 중 절전 방지
+        using HostMediaSession? media = _server.CanUseMediaTrack                // 모바일·맥: WebRTC 영상/소리 트랙 (STEP 14)
+            ? new HostMediaSession(channel, _transport, video, features.Audio, token)
+            : null;
         var view = new ViewState(_server.CaptureBounds);
 
-        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, inputDesktop, features, display, view, token);
+        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, inputDesktop, features, display, view, media, token);
         Task sendTask = Task.Run(() => video.RunAsync(token), token);
         Task expiryTask = Task.Delay(_server.Options.MaxSessionDuration, token);
         Task kickTask = Task.Delay(Timeout.Infinite, hostUserDisconnect.Token);
@@ -162,6 +165,7 @@ internal sealed class HostSession
         SessionFeatures features,
         DisplaySession display,
         ViewState view,
+        HostMediaSession? media,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -219,6 +223,14 @@ internal sealed class HostSession
                         Log.Info($"Resolution changed to {changed.Width}x{changed.Height} by client");
                         return new DisplayResultMessage(true, new DisplayMode(changed.Width, changed.Height));
                     }, cancellationToken);
+                    break;
+
+                case MediaOfferMessage offer when media is not null:
+                    await media.HandleOfferAsync(offer);
+                    break;
+
+                case MediaIceMessage ice when media is not null:
+                    media.HandleIce(ice);
                     break;
 
                 case ByeMessage bye:

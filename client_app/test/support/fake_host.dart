@@ -18,6 +18,7 @@ class FakeHost {
     this.totpCode,
     this.screenWidth = 1920,
     this.screenHeight = 1080,
+    this.features,
   });
 
   final String accessCode;
@@ -27,6 +28,9 @@ class FakeHost {
   final String? totpCode;
   final int screenWidth;
   final int screenHeight;
+
+  /// auth_result.features (null이면 보내지 않음)
+  final List<String>? features;
 
   static const passwordIterations = 10000;
   final Uint8List _salt = Uint8List.fromList(List.generate(16, (i) => i * 7));
@@ -133,6 +137,7 @@ class FakeHost {
       'host_proof': base64.encode(computeProof(AuthRole.host, key!, clientNonce, serverNonce, certificateHash)),
       'screen_width': screenWidth,
       'screen_height': screenHeight,
+      'features': ?features,
       'device_id': ?newDeviceId,
       if (newSecret != null) 'device_secret': base64.encode(newSecret),
     }));

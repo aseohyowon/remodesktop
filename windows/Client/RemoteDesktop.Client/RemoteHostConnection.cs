@@ -67,6 +67,8 @@ public sealed class RemoteHostConnection : IDisposable
     private readonly MessageChannel _channel;
     private readonly CancellationTokenSource _cancellation = new();
     private H264Decoder? _decoder;
+    private readonly object _decoderSync = new(); // 수신 스레드의 디코딩과 Dispose가 겹치지 않게 (COM 객체 이중 해제 방지)
+    private bool _decoderClosed;
     private int _disposed;
 
     private RemoteHostConnection(ClientTransport transport, MessageChannel channel, string hostId, string hostName, AuthResultMessage result)
@@ -520,21 +522,29 @@ public sealed class RemoteHostConnection : IDisposable
         byte[]? bgra;
         int width = video.Header.Width;
         int height = video.Header.Height;
-        try
+        lock (_decoderSync)
         {
-            _decoder ??= new H264Decoder();
-            bgra = _decoder.Decode(video.Data.Span, width, height);
-            width = _decoder.LastWidth;
-            height = _decoder.LastHeight;
-        }
-        catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or COMException or NotSupportedException)
-        {
-            Log.Warn($"H.264 디코딩 오류: {exception.Message}. 키프레임을 요청합니다.");
-            _decoder?.Dispose();
-            _decoder = null;
-            _ = SendAsync(new KeyframeRequestMessage());
-            _ = SendAckAsync(video.Header.FrameId);
-            return;
+            if (_decoderClosed)
+            {
+                return; // 연결을 닫는 중
+            }
+
+            try
+            {
+                _decoder ??= new H264Decoder();
+                bgra = _decoder.Decode(video.Data.Span, width, height);
+                width = _decoder.LastWidth;
+                height = _decoder.LastHeight;
+            }
+            catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or COMException or NotSupportedException)
+            {
+                Log.Warn($"H.264 디코딩 오류: {exception.Message}. 키프레임을 요청합니다.");
+                _decoder?.Dispose();
+                _decoder = null;
+                _ = SendAsync(new KeyframeRequestMessage());
+                _ = SendAckAsync(video.Header.FrameId);
+                return;
+            }
         }
 
         if (bgra is null || width <= 0 || height <= 0)
@@ -591,7 +601,13 @@ public sealed class RemoteHostConnection : IDisposable
         _channel.Dispose();
         _transport.Owner?.Dispose();
         _cancellation.Dispose();
-        _decoder?.Dispose();
+        lock (_decoderSync)
+        {
+            _decoderClosed = true;
+            _decoder?.Dispose();
+            _decoder = null;
+        }
+
         Log.Info("Disconnected");
     }
 }

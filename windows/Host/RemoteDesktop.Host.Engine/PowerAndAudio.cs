@@ -95,6 +95,7 @@ public sealed class WindowsPowerController : IPowerController
 /// <summary>
 /// 시스템 소리 전송: WASAPI 루프백으로 스피커 출력을 캡처 → 16bit PCM → 오디오 메시지(kind 4)
 /// 48 kHz 스테레오 기준 약 1.5 Mbps입니다. (LAN 권장, 인터넷은 대역폭에 주의)
+/// 미디어 트랙 모드(STEP 14)에서는 Opus(약 64 kbps)로 압축해 WebRTC 오디오 트랙으로 보냅니다.
 /// </summary>
 internal sealed class AudioStreamer : IDisposable
 {
@@ -104,6 +105,8 @@ internal sealed class AudioStreamer : IDisposable
     private WasapiLoopbackCapture? _capture;
     private uint _sequence;
     private int _pendingSends;
+    private volatile RemoteDesktop.Transport.WebRtc.MediaTrackSender? _track;
+    private OpusPacketizer? _opus;
 
     public AudioStreamer(MessageChannel channel, CancellationToken cancellationToken)
     {
@@ -112,6 +115,15 @@ internal sealed class AudioStreamer : IDisposable
     }
 
     public bool IsRunning => _capture is not null;
+
+    /// <summary>이제부터 소리를 Opus로 미디어 트랙에 보냅니다 (STEP 14).</summary>
+    public void AttachTrack(RemoteDesktop.Transport.WebRtc.MediaTrackSender track)
+    {
+        _opus = null; // 캡처 형식에 맞춰 OnData에서 만듦
+        _track = track;
+    }
+
+    public void DetachTrack() => _track = null;
 
     public async Task StartAsync()
     {
@@ -159,6 +171,19 @@ internal sealed class AudioStreamer : IDisposable
     {
         if (e.BytesRecorded == 0 || _cancellationToken.IsCancellationRequested)
         {
+            return;
+        }
+
+        if (_track is { } track && sender is WasapiLoopbackCapture capture)
+        {
+            WaveFormat format = capture.WaveFormat;
+            _opus ??= new OpusPacketizer(format.SampleRate, format.Channels);
+            ReadOnlySpan<float> floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(e.Buffer.AsSpan(0, e.BytesRecorded));
+            foreach (byte[] packet in _opus.Add(floats))
+            {
+                track.SendAudio(OpusPacketizer.FrameSamples, packet);
+            }
+
             return;
         }
 

@@ -49,7 +49,7 @@ Uri statusUri(Uri signaling, List<String> hostIds) => signaling.replace(
     );
 
 class WebRtcTransport implements ClientTransport {
-  WebRtcTransport._(this._pc, this._channel, this._incoming, this.channelBinding);
+  WebRtcTransport._(this._pc, this._channel, this._incoming, this.channelBinding, this.iceServers);
 
   final RTCPeerConnection _pc;
   final RTCDataChannel _channel;
@@ -63,6 +63,9 @@ class WebRtcTransport implements ClientTransport {
 
   @override
   String get kind => 'webrtc';
+
+  @override
+  final List<Map<String, dynamic>> iceServers;
 
   @override
   Stream<List<int>> get input => _incoming.stream;
@@ -103,6 +106,7 @@ class WebRtcTransport implements ClientTransport {
     final opened = Completer<RTCDataChannel>();
     final incoming = StreamController<List<int>>();
     RTCPeerConnection? pc;
+    var iceServers = <Map<String, dynamic>>[];
     String? sessionId;
     String? offerSdp;
     String? answerSdp;
@@ -139,6 +143,7 @@ class WebRtcTransport implements ClientTransport {
         case 'connecting':
           sessionId = m['session_id'] as String;
           final servers = (m['ice_servers'] as List? ?? []).cast<Map<String, dynamic>>();
+          iceServers = servers;
           pc = await createPeerConnection({
             'iceServers': [
               for (final s in servers)
@@ -207,7 +212,7 @@ class WebRtcTransport implements ClientTransport {
       // 화면 데이터는 P2P로 흐르므로 시그널링 연결은 닫습니다.
       unawaited(queue.cancel(immediate: true));
       unawaited(ws.sink.close());
-      return WebRtcTransport._(pc!, channel, incoming, binding);
+      return WebRtcTransport._(pc!, channel, incoming, binding, iceServers);
     } on TimeoutException {
       _cleanup(ws, queue, pc, incoming);
       throw ConnectionFailed('연결 시간이 초과되었습니다. 방화벽/NAT 환경이면 TURN 서버 설정이 필요할 수 있습니다.');

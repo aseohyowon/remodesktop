@@ -260,6 +260,16 @@ Map<String, Object?> sendSasMessage() => {'type': 'send_sas'};
 
 Map<String, Object?> keyframeRequestMessage() => {'type': 'keyframe_request'};
 
+/// 소리 켜기/끄기: action = 'start' | 'stop'
+Map<String, Object?> audioMessage(String action) => {'type': 'audio', 'action': action};
+
+// ---- STEP 14: WebRTC 미디어 트랙 ----
+
+Map<String, Object?> mediaOfferMessage(String sdp) => {'type': 'media_offer', 'sdp': sdp};
+
+Map<String, Object?> mediaIceMessage(String candidate, String? sdpMid, int? sdpMLineIndex) =>
+    {'type': 'media_ice', 'candidate': candidate, 'sdp_mid': sdpMid, 'sdp_mline_index': sdpMLineIndex};
+
 // ---- STEP 12 ----
 
 Map<String, Object?> displayModesRequestMessage() => {'type': 'display_modes_request'};
