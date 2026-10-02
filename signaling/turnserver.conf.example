@@ -1,0 +1,29 @@
+# coturn 예시 설정 (/etc/turnserver.conf)
+# 시그널링 서버 appsettings.json의 Signaling:TurnSecret 과 static-auth-secret 을 같은 값으로 맞추세요.
+# 서버는 "만료시각:세션ID" 사용자명과 HMAC-SHA1 비밀번호를 임시로 발급합니다(TURN REST API 방식).
+
+listening-port=3478
+tls-listening-port=5349
+fingerprint
+use-auth-secret
+static-auth-secret=여기에-길고-무작위인-비밀값
+realm=turn.example.com
+
+# 인증서 (Let's Encrypt 등)
+cert=/etc/letsencrypt/live/turn.example.com/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.example.com/privkey.pem
+
+# 공인 IP (클라우드 VM이면 외부 IP 지정)
+# external-ip=203.0.113.10
+
+# 릴레이 포트 범위 (방화벽에서 UDP 열기)
+min-port=49152
+max-port=65535
+
+# 보안: 내부망으로 중계 금지
+no-multicast-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+no-cli

@@ -1,279 +1,147 @@
-using System.ComponentModel;
-using System.Runtime.InteropServices;
+using System.Text;
+using RemoteDesktop.Core;
+using RemoteDesktop.Host.Engine;
 
 namespace RemoteDesktop.Host;
 
 internal static class Program
 {
-    private const int SmXVirtualScreen = 76;
-    private const int SmYVirtualScreen = 77;
-    private const int SmCxVirtualScreen = 78;
-    private const int SmCyVirtualScreen = 79;
-    private const uint SrcCopy = 0x00CC0020;
-    private const uint CaptureBlt = 0x40000000;
-    private const uint DibRgbColors = 0;
-    private const uint BiRgb = 0;
-    private const int BmpHeaderSize = 14;
-
-    private static int Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
-        if (args.Length == 1 && args[0] is "-h" or "--help")
-        {
-            PrintUsage();
-            return 0;
-        }
-
         if (!OperatingSystem.IsWindows())
         {
-            Console.Error.WriteLine("화면 캡처는 Windows에서만 실행할 수 있습니다.");
+            Console.Error.WriteLine("Host는 Windows에서만 실행할 수 있습니다.");
             return 1;
         }
 
-        if (args.Length > 1)
-        {
-            PrintUsage();
-            return 1;
-        }
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+
+        // 화면 배율(125%, 150% 등)이 있어도 실제 픽셀 좌표로 캡처하도록 가장 먼저 설정합니다.
+        NativeMethods.EnablePerMonitorDpiAwareness();
 
         try
         {
-            string outputPath = GetOutputPath(args);
-            CaptureVirtualScreen(outputPath);
+            return args switch
+            {
+                ["capture", .. var rest] => StepOneCapture.Run(rest),
+                ["password", .. var rest] => HostCommands.Password(rest),
+                ["devices", .. var rest] => HostCommands.Devices(rest),
+                ["totp", .. var rest] => HostCommands.TotpCommand(rest),
+                ["log", .. var rest] => HostCommands.ShowLog(rest),
+                ["-h"] or ["--help"] or ["help"] => PrintUsage(0),
+                _ => await RunHostAsync(args)
+            };
+        }
+        catch (ArgumentException exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            return PrintUsage(1);
+        }
+    }
+
+    private static async Task<int> RunHostAsync(string[] args)
+    {
+        HostOptions options = HostOptions.Parse(args);
+        Log.DebugEnabled = options.Verbose;
+
+        using var shutdown = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            shutdown.Cancel();
+        };
+
+        try
+        {
+            var callbacks = new ConsoleHostCallbacks();
+            var server = new HostServer(options, HostSettings.Load(), callbacks);
+            PrintConnectionInfo(server);
+            await server.RunAsync(shutdown.Token);
             return 0;
         }
-        catch (Exception exception)
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
         {
-            Console.Error.WriteLine($"화면 캡처 실패: {exception.Message}");
+            return 0;
+        }
+        catch (Exception exception) when (exception is not ArgumentException)
+        {
+            Log.Error($"Host 실행 실패: {exception.Message}");
             return 1;
-        }
-    }
-
-    private static string GetOutputPath(string[] args)
-    {
-        string path = args.Length == 1
-            ? args[0]
-            : Path.Combine(
-                Environment.CurrentDirectory,
-                "captures",
-                $"desktop-{DateTime.Now:yyyyMMdd-HHmmss}.bmp");
-
-        if (!Path.GetExtension(path).Equals(".bmp", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("출력 파일 확장자는 .bmp여야 합니다.");
-        }
-
-        string fullPath = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        return fullPath;
-    }
-
-    private static void CaptureVirtualScreen(string outputPath)
-    {
-        int left = GetSystemMetrics(SmXVirtualScreen);
-        int top = GetSystemMetrics(SmYVirtualScreen);
-        int width = GetSystemMetrics(SmCxVirtualScreen);
-        int height = GetSystemMetrics(SmCyVirtualScreen);
-
-        if (width <= 0 || height <= 0)
-        {
-            throw new InvalidOperationException("캡처할 데스크톱 화면을 찾을 수 없습니다.");
-        }
-
-        int pixelLength = checked(width * height * 4);
-        byte[] pixels = new byte[pixelLength];
-        IntPtr desktopDc = GetDC(IntPtr.Zero);
-
-        if (desktopDc == IntPtr.Zero)
-        {
-            throw new Win32Exception(Marshal.GetLastWin32Error());
-        }
-
-        IntPtr memoryDc = IntPtr.Zero;
-        IntPtr bitmap = IntPtr.Zero;
-        IntPtr previousBitmap = IntPtr.Zero;
-
-        try
-        {
-            memoryDc = CreateCompatibleDC(desktopDc);
-            if (memoryDc == IntPtr.Zero)
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            bitmap = CreateCompatibleBitmap(desktopDc, width, height);
-            if (bitmap == IntPtr.Zero)
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            previousBitmap = SelectObject(memoryDc, bitmap);
-            if (previousBitmap == IntPtr.Zero || previousBitmap == new IntPtr(-1))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            if (!BitBlt(memoryDc, 0, 0, width, height, desktopDc, left, top, SrcCopy | CaptureBlt))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            IntPtr deselectedBitmap = SelectObject(memoryDc, previousBitmap);
-            if (deselectedBitmap == IntPtr.Zero || deselectedBitmap == new IntPtr(-1))
-            {
-                throw new Win32Exception(Marshal.GetLastWin32Error());
-            }
-
-            previousBitmap = IntPtr.Zero;
-
-            var header = new BitmapInfoHeader
-            {
-                Size = (uint)Marshal.SizeOf<BitmapInfoHeader>(),
-                Width = width,
-                Height = -height,
-                Planes = 1,
-                BitCount = 32,
-                Compression = BiRgb,
-                SizeImage = (uint)pixelLength,
-                XPixelsPerMeter = 2835,
-                YPixelsPerMeter = 2835
-            };
-
-            int rowsCopied = GetDIBits(
-                desktopDc,
-                bitmap,
-                0,
-                (uint)height,
-                pixels,
-                ref header,
-                DibRgbColors);
-
-            if (rowsCopied != height)
-            {
-                throw new InvalidOperationException($"화면 픽셀을 읽지 못했습니다 ({rowsCopied}/{height} 줄).");
-            }
-
-            for (int i = 3; i < pixels.Length; i += 4)
-            {
-                pixels[i] = byte.MaxValue;
-            }
-
-            WriteBitmap(outputPath, width, height, pixels);
-            Console.WriteLine($"화면 캡처 완료: {outputPath}");
-            Console.WriteLine($"크기: {width} x {height} 픽셀 (전체 가상 화면)");
         }
         finally
         {
-            if (previousBitmap != IntPtr.Zero)
-            {
-                SelectObject(memoryDc, previousBitmap);
-            }
-
-            if (bitmap != IntPtr.Zero)
-            {
-                DeleteObject(bitmap);
-            }
-
-            if (memoryDc != IntPtr.Zero)
-            {
-                DeleteDC(memoryDc);
-            }
-
-            ReleaseDC(IntPtr.Zero, desktopDc);
+            Log.Info("Host stopped");
         }
     }
 
-    private static void WriteBitmap(string outputPath, int width, int height, byte[] pixels)
+    private static void PrintConnectionInfo(HostServer server)
     {
-        uint imageSize = checked((uint)pixels.Length);
-        uint fileSize = checked((uint)(BmpHeaderSize + Marshal.SizeOf<BitmapInfoHeader>()) + imageSize);
+        // 접속 코드는 화면에만 보여 주고 Log(로그)로는 남기지 않습니다.
+        Console.WriteLine();
+        Console.WriteLine("============================================================");
+        Console.WriteLine($"  Host ID     : {server.Settings.HostId}");
+        if (server.Options.AccessCodeEnabled)
+        {
+            Console.WriteLine($"  접속 코드   : {server.FormattedAccessCode}   (Host를 다시 시작하면 바뀝니다)");
+        }
 
-        using var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new BinaryWriter(stream);
+        if (server.Settings.HasPassword)
+        {
+            Console.WriteLine("  비밀번호    : 설정됨");
+        }
 
-        writer.Write((ushort)0x4D42);
-        writer.Write(fileSize);
-        writer.Write((ushort)0);
-        writer.Write((ushort)0);
-        writer.Write((uint)(BmpHeaderSize + Marshal.SizeOf<BitmapInfoHeader>()));
-        writer.Write((uint)Marshal.SizeOf<BitmapInfoHeader>());
-        writer.Write(width);
-        writer.Write(-height);
-        writer.Write((ushort)1);
-        writer.Write((ushort)32);
-        writer.Write(BiRgb);
-        writer.Write(imageSize);
-        writer.Write(2835);
-        writer.Write(2835);
-        writer.Write(0);
-        writer.Write(0);
-        writer.Write(pixels);
+        if (server.Options.EnableLan)
+        {
+            Console.WriteLine($"  LAN 주소    : {string.Join(", ", HostServer.GetLanAddresses().Select(a => $"{a}:{server.Options.Port}"))}");
+        }
+
+        if (server.Options.SignalingServer is { } signal)
+        {
+            Console.WriteLine($"  인터넷      : {signal} 에 {server.Settings.HostId}로 등록");
+        }
+
+        Console.WriteLine($"  인증서 지문 : {RemoteDesktop.Protocol.AuthProof.FormatFingerprint(server.TlsChannelBinding)}");
+        Console.WriteLine("============================================================");
+        Console.WriteLine();
     }
 
-    private static void PrintUsage()
+    private static int PrintUsage(int exitCode)
     {
-        Console.WriteLine("사용법: RemoteDesktop.Host.exe [출력파일.bmp]");
-        Console.WriteLine("출력 경로를 생략하면 현재 폴더의 captures 폴더에 저장합니다.");
-    }
+        Console.WriteLine("""
+            사용법:
+              RemoteDesktop.Host.exe [옵션]                 Host 실행
+              RemoteDesktop.Host.exe capture [파일.bmp]     STEP 1 화면 저장
+              RemoteDesktop.Host.exe password set|clear     접속 비밀번호 설정/삭제
+              RemoteDesktop.Host.exe devices [revoke <ID|all>]  신뢰된 장치 목록/해제
+              RemoteDesktop.Host.exe totp enable|disable    2단계 인증(TOTP) 켜기/끄기
+              RemoteDesktop.Host.exe log [개수]             접속 기록 보기
 
-    [DllImport("user32.dll")]
-    private static extern int GetSystemMetrics(int index);
+            옵션:
+              --port 50505         LAN 포트
+              --monitor 1          보낼 모니터 번호 (생략하면 주 모니터)
+              --fps 30             최대 초당 프레임 (1~60)
+              --quality 70         JPEG 품질 (10~95)
+              --view-only          화면만 보여 주고 입력은 받지 않음
+              --require-approval   신뢰된 장치가 아닌 접속은 Host에서 승인 필요
+              --no-access-code     접속 코드 끄기 (비밀번호/신뢰된 장치만 허용)
+              --session-hours 12   세션 최대 시간
+              --allow-public       공인 IP의 직접 LAN 연결 허용 (권장하지 않음)
+              --signal wss://...   인터넷 연결용 시그널링 서버
+              --no-lan             LAN 직접 연결 끄기
+              --codec auto         영상 코덱: auto(Client가 지원하면 H.264) | h264 | jpeg
+              --bitrate 8000       H.264 최대 비트레이트 (kbps)
+              --no-adaptive        네트워크에 따른 자동 화질 조절 끄기
+              --cpu-encoder        GPU 대신 CPU H.264 인코더 사용
+              --no-clipboard       클립보드 공유 끄기
+              --no-file-transfer   파일 전송 끄기
+              --shared-folder 경로 파일 전송 폴더 (기본: %USERPROFILE%\RemoteDesktop)
+              --no-audio           소리 전송 끄기
+              --allow-power        원격 로그아웃/재시작/종료 허용 (잠금은 항상 허용)
+              --verbose            상세 로그
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr GetDC(IntPtr window);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int ReleaseDC(IntPtr window, IntPtr deviceContext);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern IntPtr CreateCompatibleDC(IntPtr deviceContext);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern bool DeleteDC(IntPtr deviceContext);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern IntPtr CreateCompatibleBitmap(IntPtr deviceContext, int width, int height);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern IntPtr SelectObject(IntPtr deviceContext, IntPtr graphicsObject);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern bool DeleteObject(IntPtr graphicsObject);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern bool BitBlt(
-        IntPtr destination,
-        int destinationX,
-        int destinationY,
-        int width,
-        int height,
-        IntPtr source,
-        int sourceX,
-        int sourceY,
-        uint rasterOperation);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern int GetDIBits(
-        IntPtr deviceContext,
-        IntPtr bitmap,
-        uint startScan,
-        uint scanLines,
-        [Out] byte[] bits,
-        ref BitmapInfoHeader bitmapInfo,
-        uint usage);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BitmapInfoHeader
-    {
-        public uint Size;
-        public int Width;
-        public int Height;
-        public ushort Planes;
-        public ushort BitCount;
-        public uint Compression;
-        public uint SizeImage;
-        public int XPixelsPerMeter;
-        public int YPixelsPerMeter;
-        public uint ColorsUsed;
-        public uint ColorsImportant;
+            Windows 창 앱(RemoteDesktop.exe)을 쓰면 위 설정을 화면에서 바꿀 수 있습니다.
+            """);
+        return exitCode;
     }
 }

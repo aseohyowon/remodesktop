@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 창 앱 (콘솔 없음). 로그 파일: %LOCALAPPDATA%/RemoteDesktop/app.log -->
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>RemoteDesktop</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RemoteDesktop.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\RemoteDesktop.Core\RemoteDesktop.Core.csproj" />
+    <ProjectReference Include="..\..\Transport\RemoteDesktop.Transport.WebRtc\RemoteDesktop.Transport.WebRtc.csproj" />
+    <ProjectReference Include="..\..\Host\RemoteDesktop.Host.Engine\RemoteDesktop.Host.Engine.csproj" />
+    <ProjectReference Include="..\..\Media\RemoteDesktop.Media\RemoteDesktop.Media.csproj" />
+    <ProjectReference Include="..\..\Protocol\RemoteDesktop.Protocol\RemoteDesktop.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+  </ItemGroup>
+
+</Project>
