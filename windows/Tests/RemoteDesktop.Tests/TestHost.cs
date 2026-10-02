@@ -23,7 +23,7 @@ internal sealed class TestHost : IAsyncDisposable
         AccessLog.PathOverride = Path.Combine(Path.GetTempPath(), $"rd-test-access-{Environment.ProcessId}.jsonl");
     }
 
-    public TestHost(HostOptions? options = null, IHostCallbacks? callbacks = null, Action<HostSettings>? configure = null, string? hostId = null, bool viewOnly = true)
+    public TestHost(HostOptions? options = null, IHostCallbacks? callbacks = null, Action<HostSettings>? configure = null, string? hostId = null, bool viewOnly = true, int? discoveryPort = null)
     {
         Directory = System.IO.Directory.CreateTempSubdirectory("rd-test-").FullName;
         if (hostId is not null)
@@ -35,7 +35,8 @@ internal sealed class TestHost : IAsyncDisposable
         configure?.Invoke(Settings);
 
         Port = GetFreePort();
-        Options = (options ?? new HostOptions()) with { Port = Port, ViewOnly = viewOnly };
+        // 검색 응답은 명시적으로 켠 테스트에서만 (기본 끔: 여러 테스트가 같은 UDP 포트를 쓰지 않도록)
+        Options = (options ?? new HostOptions()) with { Port = Port, ViewOnly = viewOnly, Discoverable = discoveryPort is not null, DiscoveryPort = discoveryPort ?? 0 };
         Server = new HostServer(Options, Settings, callbacks, CreateCertificate());
         _run = Task.Run(() => Server.RunAsync(_stop.Token));
     }

@@ -154,3 +154,19 @@ WebRTC binding 벡터: offer 지문 `AA:BB:CC`, answer 지문 `11:22:33` → `25
 `ice_servers`: `[{"urls":["stun:..."]}, {"urls":["turn:..."], "username":"만료시각:세션", "credential":"Base64(HMAC-SHA1(secret, username))"}]`
 
 HTTP: `GET /api/status?ids=HOST-A,HOST-B` → `{"online":{"HOST-A":true,...}}`, `GET /health`
+
+## 7. LAN 자동 검색 (UDP 50506, STEP 11)
+
+```text
+Client → 255.255.255.255:50506 (Windows는 각 네트워크의 브로드캐스트 주소에도)
+  {"type":"rd_discover","version":1,"nonce":"16진수"}
+Host → Client (유니캐스트)
+  {"type":"rd_host","version":1,"nonce":"같은 값","host_id":"HOST-...","host_name":"PC 이름","port":50505}
+```
+
+- Host는 사설망·루프백 주소의 요청에만, 같은 주소에 초당 5번까지만 응답합니다. 응답에 비밀 정보는 없습니다.
+- Client는 자기가 보낸 nonce가 든 응답만 받습니다.
+- 검색은 편의 기능일 뿐 인증이 아닙니다. 연결은 평소처럼 TLS + 인증을 거칩니다.
+- Host 옵션 `--no-discovery`(앱: "같은 네트워크에서 이 PC를 찾을 수 있게" 해제)로 끌 수 있습니다.
+- iOS에서 브로드캐스트를 보내려면 Apple의 Multicast Networking 권한(`com.apple.developer.networking.multicast`)이 필요합니다.
+

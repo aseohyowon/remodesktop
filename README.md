@@ -16,7 +16,7 @@
 | 화면 | Desktop Duplication 캡처, **H.264 GPU 인코딩**(NVENC/Quick Sync/AMF, 없으면 CPU), JPEG 대체, 1080p, 적응형 해상도·FPS·비트레이트, 프레임 드롭 |
 | 입력 | 마우스(이동·클릭·우클릭·더블 클릭·드래그·휠·가운데·앞/뒤 버튼), 키보드(조합키, Windows 키, Alt+Tab, 한/영, F키), 다중 모니터 좌표 |
 | 모바일 | 터치패드/직접 터치 모드, 두 손가락 우클릭·스크롤, 길게 눌러 드래그, 핀치 확대, 가상 키보드(한글 조합, Ctrl 등 특수 키) |
-| 연결 | LAN 직접 연결(TLS), **인터넷 연결**(시그널링 서버 + WebRTC P2P, STUN/TURN), 자동 재연결, 연결 품질 표시 |
+| 연결 | **같은 네트워크 PC 자동 검색**, LAN 직접 연결(TLS), **인터넷 연결**(시그널링 서버 + WebRTC P2P, STUN/TURN), 자동 재연결, 연결 품질 표시 |
 | 인증 | Host ID, 접속 코드, 비밀번호(PBKDF2), 신뢰된 장치, **2단계 인증(TOTP)**, 접속 승인, 실패 차단, 세션 만료, 접속 기록 |
 | 부가 | 클립보드 공유, 파일 보내기/받기(SHA-256 검증), 소리 전송, 모니터 선택, 화면 잠금·로그아웃·재시작·종료 |
 | 앱 | 통합 Windows 앱(내 PC 원격 허용 + 원격 PC에 연결, 트레이, 자동 실행), Flutter 앱(iPhone·Android·macOS) |
@@ -31,7 +31,7 @@ dotnet run --project .\windows\Client\RemoteDesktop.Client
 ```
 
 1. **원격으로 제어당할 PC**: [내 PC 원격 허용] 탭 → `내 PC를 원격으로 허용` 체크 → 화면의 Host ID, 접속 코드, LAN 주소 확인
-2. **접속할 PC**: [원격 PC에 연결] 탭 → `PC 추가`(IP 주소) → `연결` → 접속 코드 입력
+2. **접속할 PC**: [원격 PC에 연결] 탭 → `같은 네트워크에서 찾기`(또는 `PC 추가`로 IP 입력) → `연결` → 접속 코드 입력
 3. 처음 실행할 때 Windows 방화벽 창이 뜨면 `개인 네트워크`만 체크하고 허용
 
 배포용 실행 파일은 `.\scripts\publish-windows.ps1`로 만듭니다(`dist\`).
@@ -40,7 +40,7 @@ dotnet run --project .\windows\Client\RemoteDesktop.Client
 
 | 문서 | 내용 |
 |---|---|
-| [docs/development.md](docs/development.md) | **단계별 실행·테스트·문제 해결** (STEP 1~10), 모바일 빌드, 배포 |
+| [docs/development.md](docs/development.md) | **단계별 실행·테스트·문제 해결** (STEP 1~11), 모바일 빌드, 배포, **집에서 확인할 것** |
 | [docs/architecture.md](docs/architecture.md) | 전체 구조, 프로젝트별 역할, 흐름 제어, 코덱 선택, 스레드 |
 | [docs/protocol.md](docs/protocol.md) | 프로토콜 명세 (framing, 메시지, 인증 계산, 시그널링, 테스트 벡터) |
 | [docs/security.md](docs/security.md) | 보안 설계, 저장 데이터, Windows 제약, 운영 권장 사항, 알려진 한계 |
@@ -53,8 +53,8 @@ remodesktop/
 │   ├── Client/               통합 Windows 앱 RemoteDesktop.exe
 │   ├── Host/                 Host 엔진 + 콘솔 Host
 │   ├── Protocol/ Core/ Media/ Transport/   공통 라이브러리
-│   └── Tests/                xUnit 테스트 75개
-├── client_app/               Flutter 앱 (iPhone · Android · macOS), 테스트 43개
+│   └── Tests/                xUnit 테스트 79개
+├── client_app/               Flutter 앱 (iPhone · Android · macOS), 테스트 47개
 ├── signaling/                시그널링 서버 (ASP.NET Core, Dockerfile, coturn 예시)
 ├── scripts/                  배포 스크립트
 └── docs/
@@ -85,6 +85,7 @@ remodesktop/
 | 8 | 성능: Desktop Duplication, H.264 GPU, 적응형 화질 | ✅ |
 | 9 | 클립보드, 파일, 소리, 모니터 선택, 전원, 자동 재연결 | ✅ |
 | 10 | 통합 Windows 앱, 트레이, 자동 실행, 배포 스크립트 | ✅ |
+| 11 | 같은 네트워크 PC 자동 검색 (UDP 브로드캐스트) | ✅ |
 
 ## Windows 보안상 제약
 
@@ -98,5 +99,4 @@ remodesktop/
 
 - 모바일·맥 앱의 H.264 디코딩(네이티브 플러그인)과 소리 재생
 - 보안 데스크톱(로그인/UAC) 지원을 위한 Windows 서비스 + 세션 에이전트
-- LAN 자동 검색(mDNS/UDP 브로드캐스트)
 - 비밀번호 인증을 PAKE(OPAQUE)로 강화

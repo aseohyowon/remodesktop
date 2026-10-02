@@ -33,10 +33,10 @@ Java에 비유하면 `.sln`은 Maven 멀티 모듈 루트의 `pom.xml`, `.csproj
 
 ```powershell
 cd C:\Users\kk\github\remodesk\windows
-dotnet test .\Tests\RemoteDesktop.Tests      # C# 75개 (실제 화면 캡처, GPU 인코더, TLS, WebRTC 포함)
+dotnet test .\Tests\RemoteDesktop.Tests      # C# 79개 (실제 화면 캡처, GPU 인코더, TLS, WebRTC 포함)
 
 cd C:\Users\kk\github\remodesk\client_app
-flutter test                                 # Dart 43개 (실제 Host가 필요한 4개는 환경 변수가 없으면 건너뜀)
+flutter test                                 # Dart 47개 (실제 Host가 필요한 5개는 환경 변수가 없으면 건너뜀)
 ```
 
 C# 테스트는 실제 사용자 설정(`%LOCALAPPDATA%\RemoteDesktop`)과 Windows 인증서 저장소를 건드리지 않고, 임시 폴더와 임시 인증서를 씁니다. 클립보드와 전원 동작은 가짜 구현으로 시험합니다.
@@ -575,4 +575,91 @@ flutter build macos --release       # Mac: build/macos/Build/Products/Release/Re
 1. Windows 방화벽 창: `개인 네트워크`만 체크하고 `액세스 허용`.
 2. 관리자 권한 창(작업 관리자 등)까지 조작하려면 앱을 "관리자 권한으로 실행".
 3. 인터넷으로 쓰려면: 비밀번호 + 2단계 인증을 켜고, 시그널링 서버(HTTPS)와 필요하면 TURN을 준비합니다. 자세한 내용은 [security.md](security.md)를 보세요.
+
+## STEP 11 - 같은 네트워크에서 PC 자동 검색
+
+Host가 켜져 있으면 UDP 50506으로 검색 요청에 응답합니다. Client는 버튼 하나로 같은 네트워크의 PC를 찾아 목록에 추가합니다.
+
+| 앱 | 사용법 |
+|---|---|
+| Windows | [원격 PC에 연결] → `같은 네트워크에서 찾기` → 추가할 PC 선택 |
+| 모바일/맥 | 위쪽 📶(Wi-Fi 찾기) 버튼 → 추가할 PC 선택 |
+| Host 끄기 | 앱: "같은 네트워크에서 이 PC를 찾을 수 있게" 해제, 콘솔: `--no-discovery` |
+
+| 증상 | 해결 |
+|---|---|
+| 찾은 PC가 없음 | 두 기기가 같은 공유기(Wi-Fi)에 있는지, Host의 원격 허용이 켜져 있는지 확인. Windows 방화벽에서 `RemoteDesktop`/`RemoteDesktop.Host`의 "개인 네트워크"를 허용했는지 확인 |
+| iPhone에서만 안 됨 | iOS는 브로드캐스트에 별도 권한이 필요합니다. IP 주소로 직접 추가하세요 |
+| 게스트 Wi-Fi / 회사망 | "단말 간 통신 차단(AP 격리)"이 켜져 있으면 검색과 연결이 모두 안 됩니다 |
+
+자동 테스트: `DiscoveryTests`(C#: 형식, 실제 Host 검색, 끔 상태, 초당 제한), `discovery_test.dart`(Dart: 형식이 C#과 같은지, UDP 왕복, 실제 Host 브로드캐스트 검색).
+
+## 이 PC에서 자동/실기 테스트로 확인한 것
+
+| 항목 | 방법 | 결과 |
+|---|---|---|
+| 통합 앱 실제 사용 흐름 | UI 자동화(실제 마우스 클릭): 연결 → 로그인 → 지문 확인 → 원격 화면 → 도구 모음 → 닫기 | 통과, 원격 화면 1080p H.264 표시, "연결 좋음 · H264 · 16 ms" |
+| GPU H.264 | AMD `AMDh264Encoder` → Windows 디코더 | 통과 (PSNR 약 33 dB) |
+| 소리 | 톤 재생 → Client가 받은 PCM | 통과 (1.5초 재생 → 1.8초 분량 수신, 조용할 때는 0) |
+| 파일·클립보드·전원·검색 | C# 79개 + Dart 47개 테스트 | 통과 |
+| Dart 앱 ↔ C# Host | 접속 코드·비밀번호·신뢰 장치·파일·브로드캐스트 검색 | 통과 |
+| 배포 exe | `dist\host\RemoteDesktop.Host.exe` 실행 후 연결 | 통과 |
+
+## 집에서 직접 확인할 것 (이 PC 한 대로는 할 수 없는 것)
+
+### A. Windows PC 두 대 (가장 먼저)
+
+1. 두 PC에 저장소를 받아 `dotnet run --project .\windows\Client\RemoteDesktop.Client` 실행
+2. 방화벽 창: **개인 네트워크만** 체크하고 허용 (두 PC 모두)
+3. PC B: [내 PC 원격 허용] 켜기
+4. PC A: `같은 네트워크에서 찾기` → PC B가 보이는지 → 추가 → 연결 → 접속 코드
+
+| 확인 | 기대 결과 |
+|---|---|
+| 마우스 이동·클릭·드래그·휠 | PC B에서 같은 동작, 지연이 거의 없음 |
+| 키보드, 한/영, Windows 키, Alt+Tab | PC B에서 동작 (원격 창이 활성일 때) |
+| 동영상(유튜브) 재생 | 끊김 없이 보이는지, 도구 모음의 Mbps·ms 값 |
+| `소리` 켜기 | PC B의 소리가 PC A 스피커로 나오는지 |
+| PC A에서 복사 → PC B에서 붙여넣기 (반대도) | 텍스트가 옮겨짐 |
+| `파일 보내기` / 원격 화면에 파일 끌어다 놓기 | PC B의 `%USERPROFILE%\RemoteDesktop\Received`에 저장 |
+| `파일 받기` | PC B의 `%USERPROFILE%\RemoteDesktop` 파일이 PC A 다운로드 폴더로 |
+| `전원 → 화면 잠금` | PC B가 잠김 (잠긴 화면은 볼 수 없음 → 안내 문구) |
+| PC B Wi-Fi를 잠깐 껐다 켜기 | "다시 연결하는 중..." 후 자동 재연결 |
+| 모니터가 여러 대면 `모니터` 메뉴 | 선택한 모니터로 바뀌고, 클릭 위치가 맞는지 |
+| 로그인 시 `이 PC 기억하기` → 다시 연결 | 비밀번호 없이 연결 |
+
+### B. Android 폰
+
+1. 이 PC: Android Studio 설치(관리자 승인) → 처음 실행해 SDK 설치 → `flutter doctor --android-licenses`
+2. 폰: 개발자 옵션 → USB 디버깅 켜기 → USB 연결
+3. `cd C:\Users\kk\github\remodesk\client_app` → `flutter run`
+
+| 확인 | 기대 결과 |
+|---|---|
+| 📶 버튼으로 PC 찾기 | 같은 Wi-Fi의 PC가 보임 |
+| 터치패드 모드: 문지르기/탭/두 손가락 탭/두 손가락 스크롤/길게 눌러 끌기 | 커서 이동, 클릭, 우클릭, 스크롤, 드래그 |
+| 핀치 확대 후 커서 이동 | 화면이 커서를 따라감 |
+| 키보드: `안녕하세요`, `Ctrl` → `c` | 한글 입력, 복사 |
+| 메뉴: 파일 보내기/받기, 클립보드 보내기 | 동작 |
+| 커서 속도/스크롤 방향이 어색함 | `remote_screen.dart`의 `_trackpadSpeed`, `_wheelPerPixel` 조절 후 알려 주세요 |
+
+### C. iPhone · 맥북 (Mac 필요)
+
+```bash
+git clone https://github.com/aseohyowon/remodesktop && cd remodesktop/client_app
+flutter pub get
+flutter run -d macos                 # 맥 앱
+open ios/Runner.xcworkspace          # Xcode에서 Signing & Capabilities → Team 선택
+flutter run -d <iPhone 기기 ID>
+```
+
+- macOS: 마우스·트랙패드 스크롤·키보드, ⌘C/⌘V → 원격 Ctrl+C/V
+- iPhone: 처음 연결할 때 "로컬 네트워크" 권한 허용. PC 찾기(📶)는 iOS 권한 문제로 안 될 수 있으니 IP로 추가
+
+### D. 인터넷 연결 (서로 다른 네트워크)
+
+1. 공인 IP가 있는 서버(클라우드 VM 등)에 시그널링 서버 실행 + HTTPS(`wss://`) 구성 (STEP 7 참고)
+2. PC B: [내 PC 원격 허용] → `인터넷 연결 허용`, 시그널링 서버 주소 입력
+3. 휴대폰을 **모바일 데이터**로 바꾸고 Host ID로 연결
+4. 연결이 안 되면 TURN(coturn) 설정 후 다시 시도
 

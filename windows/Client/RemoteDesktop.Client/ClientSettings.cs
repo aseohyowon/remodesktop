@@ -86,5 +86,8 @@ public sealed class HostPreferences
 
     public bool StartWithWindows { get; set; }
 
+    /// <summary>같은 네트워크의 다른 기기가 이 PC를 자동으로 찾을 수 있음</summary>
+    public bool Discoverable { get; set; } = true;
+
     public bool MinimizeToTray { get; set; } = true;
 }

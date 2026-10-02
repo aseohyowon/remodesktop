@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../protocol/auth.dart';
 import '../protocol/connection.dart';
+import '../protocol/discovery.dart';
 import '../protocol/protocol.dart';
 import '../protocol/webrtc_transport.dart';
 import '../storage/host_store.dart';
@@ -88,6 +89,48 @@ class _HostListScreenState extends State<HostListScreen> {
         _status[host.id] = online[host.hostId] == true ? _Status.online : _Status.offline;
       }
     });
+  }
+
+  /// 같은 Wi-Fi의 PC를 찾아 목록에 추가 (STEP 11)
+  Future<void> _discover() async {
+    _showMessage('같은 네트워크에서 PC를 찾는 중...');
+    List<FoundHost> found;
+    try {
+      found = await discoverHosts();
+    } catch (e) {
+      _showMessage('검색할 수 없습니다: $e');
+      return;
+    }
+    final candidates = found
+        .where((f) => !_hosts.any((h) => h.hostId == f.hostId || (h.address == f.address && h.port == f.port)))
+        .toList();
+    if (!mounted) return;
+    if (candidates.isEmpty) {
+      _showMessage(found.isEmpty
+          ? '찾은 PC가 없습니다. PC에서 원격 허용이 켜져 있고 같은 Wi-Fi인지 확인하세요. (iPhone은 IP를 직접 입력해야 할 수 있습니다)'
+          : '찾은 PC가 모두 이미 목록에 있습니다.');
+      return;
+    }
+
+    final selected = await showDialog<List<FoundHost>>(
+      context: context,
+      builder: (context) => _DiscoveryDialog(candidates),
+    );
+    if (selected == null || selected.isEmpty) return;
+    setState(() {
+      for (final f in selected) {
+        _hosts.add(SavedHost(
+          id: '${DateTime.now().microsecondsSinceEpoch}-${f.hostId}',
+          name: f.hostName,
+          address: f.address,
+          port: f.port,
+          hostId: f.hostId,
+        ));
+      }
+    });
+    await _store.saveAll(_hosts);
+    _showMessage('${selected.length}대를 추가했습니다.');
+    await _refreshStatus();
   }
 
   Future<void> _editSettings() async {
@@ -312,6 +355,7 @@ class _HostListScreenState extends State<HostListScreen> {
       appBar: AppBar(
         title: const Text('Remote Desktop'),
         actions: [
+          IconButton(onPressed: _discover, icon: const Icon(Icons.wifi_find), tooltip: '같은 네트워크에서 찾기'),
           IconButton(onPressed: _refreshStatus, icon: const Icon(Icons.refresh), tooltip: '상태 새로고침'),
           IconButton(onPressed: _editSettings, icon: const Icon(Icons.settings), tooltip: '설정'),
         ],
@@ -328,7 +372,7 @@ class _HostListScreenState extends State<HostListScreen> {
                   child: Padding(
                     padding: EdgeInsets.all(32),
                     child: Text(
-                      '등록된 PC가 없습니다.\n\nWindows PC에서 Host를 실행한 뒤\n[PC 추가]로 Host 콘솔에 표시된 주소를 입력하세요.',
+                      '등록된 PC가 없습니다.\n\nWindows PC에서 원격 허용을 켠 뒤\n위쪽 📶 버튼으로 같은 Wi-Fi의 PC를 찾거나\n[PC 추가]로 주소를 직접 입력하세요.',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -476,6 +520,46 @@ class _HostEditDialogState extends State<_HostEditDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
         FilledButton(onPressed: _save, child: const Text('저장')),
+      ],
+    );
+  }
+}
+
+class _DiscoveryDialog extends StatefulWidget {
+  const _DiscoveryDialog(this.found);
+  final List<FoundHost> found;
+
+  @override
+  State<_DiscoveryDialog> createState() => _DiscoveryDialogState();
+}
+
+class _DiscoveryDialogState extends State<_DiscoveryDialog> {
+  late final Set<String> _checked = widget.found.map((f) => f.hostId).toSet();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('같은 네트워크에서 찾은 PC'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final f in widget.found)
+            CheckboxListTile(
+              value: _checked.contains(f.hostId),
+              onChanged: (v) => setState(() => v == true ? _checked.add(f.hostId) : _checked.remove(f.hostId)),
+              title: Text(f.hostName),
+              subtitle: Text('${f.address}:${f.port}  ·  ${f.hostId}'),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, widget.found.where((f) => _checked.contains(f.hostId)).toList()),
+          child: const Text('추가'),
+        ),
       ],
     );
   }

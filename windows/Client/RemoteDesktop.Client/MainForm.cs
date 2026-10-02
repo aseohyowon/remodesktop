@@ -47,6 +47,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
     private readonly CheckBox _files = new() { Text = "파일 전송", AutoSize = true };
     private readonly CheckBox _audio = new() { Text = "소리 전송", AutoSize = true };
     private readonly CheckBox _startup = new() { Text = "Windows 시작 시 자동 실행", AutoSize = true };
+    private readonly CheckBox _discoverable = new() { Text = "같은 네트워크에서 이 PC를 찾을 수 있게", AutoSize = true };
     private readonly TextBox _sharedFolder = new() { Width = 300 };
 
     private readonly NotifyIcon _tray = new() { Text = "Remote Desktop", Icon = SystemIcons.Application };
@@ -116,6 +117,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
         }
 
         Add("연결", ConnectSelectedAsync).Font = new Font(Font, FontStyle.Bold);
+        Add("같은 네트워크에서 찾기", DiscoverAsync);
         Add("PC 추가", () => { EditHost(null); return Task.CompletedTask; });
         Add("편집", () => { if (Selected is { } h) EditHost(h); return Task.CompletedTask; });
         Add("삭제", () => { DeleteSelected(); return Task.CompletedTask; });
@@ -345,6 +347,53 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
         }
     }
 
+    /// <summary>같은 네트워크의 Host를 UDP 브로드캐스트로 찾아 목록에 추가합니다 (STEP 11).</summary>
+    private async Task DiscoverAsync()
+    {
+        _connectStatus.Text = "같은 네트워크에서 PC를 찾는 중...";
+        UseWaitCursor = true;
+        IReadOnlyList<LanDiscovery.FoundHost> found;
+        try
+        {
+            found = await LanDiscovery.DiscoverAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            UseWaitCursor = false;
+        }
+
+        string? myHostId = _host?.Settings.HostId;
+        var candidates = found
+            .Where(f => f.HostId != myHostId)
+            .Where(f => !_settings.Hosts.Any(h => h.HostId == f.HostId || (h.Address == f.Address.ToString() && h.Port == f.Port)))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            _connectStatus.Text = found.Count == 0
+                ? "찾은 PC가 없습니다. 상대 PC에서 원격 허용이 켜져 있고 같은 네트워크(공유기)에 있는지 확인하세요."
+                : "찾은 PC가 모두 이미 목록에 있습니다.";
+            return;
+        }
+
+        using var dialog = new DiscoveryDialog(candidates);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            _connectStatus.Text = "";
+            return;
+        }
+
+        foreach (var host in dialog.Selected)
+        {
+            _settings.Hosts.Add(new SavedHost { Name = host.HostName, Address = host.Address.ToString(), Port = host.Port, HostId = host.HostId });
+        }
+
+        _settings.Save();
+        ReloadHostList();
+        _connectStatus.Text = $"{dialog.Selected.Count}대를 추가했습니다.";
+        await RefreshStatusAsync();
+    }
+
     private LoginRequest? AskLogin(SavedHost host)
     {
         using var dialog = new LoginDialog(host.Name);
@@ -480,7 +529,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
 
         // 옵션
         var options = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = Padding.Empty };
-        options.Controls.AddRange([_approval, _viewOnly, _clipboard, _files, _audio, _power, _internet, _startup]);
+        options.Controls.AddRange([_approval, _viewOnly, _clipboard, _files, _audio, _power, _internet, _discoverable, _startup]);
         Row("옵션", options);
 
         var folderPanel = new FlowLayoutPanel { AutoSize = true, Margin = Padding.Empty };
@@ -513,7 +562,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
             }
         };
 
-        foreach (CheckBox box in new[] { _approval, _viewOnly, _clipboard, _files, _audio, _power, _internet })
+        foreach (CheckBox box in new[] { _approval, _viewOnly, _clipboard, _files, _audio, _power, _internet, _discoverable })
         {
             box.CheckedChanged += (_, _) => SavePreferences(restartHost: true);
         }
@@ -538,6 +587,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
         _audio.Checked = p.AllowAudio;
         _power.Checked = p.AllowPower;
         _internet.Checked = p.AllowInternet;
+        _discoverable.Checked = p.Discoverable;
         _startup.Checked = p.StartWithWindows;
         _sharedFolder.Text = p.SharedFolder ?? new HostOptions().SharedFolder;
         _loadingPreferences = false;
@@ -563,6 +613,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
         p.AllowAudio = _audio.Checked;
         p.AllowPower = _power.Checked;
         p.AllowInternet = _internet.Checked;
+        p.Discoverable = _discoverable.Checked;
         p.StartWithWindows = _startup.Checked;
         p.SharedFolder = _sharedFolder.Text;
         _settings.Save();
@@ -615,6 +666,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
             AllowAudio = p.AllowAudio,
             AllowPower = p.AllowPower,
             SignalingServer = signal,
+            Discoverable = p.Discoverable,
             SharedFolder = string.IsNullOrWhiteSpace(p.SharedFolder) ? new HostOptions().SharedFolder : p.SharedFolder
         };
 

@@ -95,6 +95,10 @@ public sealed class HostServer
         if (Options.EnableLan)
         {
             tasks.Add(RunLanListenerAsync(cancellationToken));
+            if (Options.Discoverable)
+            {
+                tasks.Add(new DiscoveryResponder(this).RunAsync(cancellationToken));
+            }
         }
 
         if (Options.SignalingServer is not null)

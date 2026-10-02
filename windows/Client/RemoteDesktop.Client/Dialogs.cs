@@ -167,6 +167,32 @@ internal sealed class HostEditDialog : DialogBase
     };
 }
 
+/// <summary>같은 네트워크에서 찾은 PC 중 목록에 추가할 것을 고르는 창</summary>
+internal sealed class DiscoveryDialog : DialogBase
+{
+    private readonly CheckedListBox _list = new() { Width = 420, Height = 160, CheckOnClick = true };
+    private readonly IReadOnlyList<LanDiscovery.FoundHost> _found;
+
+    public DiscoveryDialog(IReadOnlyList<LanDiscovery.FoundHost> found) : base("같은 네트워크에서 찾은 PC")
+    {
+        _found = found;
+        var layout = NewLayout(1);
+        layout.Controls.Add(new Label { Text = "목록에 추가할 PC를 고르세요. 연결할 때는 평소처럼 인증이 필요합니다.", AutoSize = true });
+        foreach (var host in found)
+        {
+            _list.Items.Add($"{host.HostName}   ({host.Address}:{host.Port}, {host.HostId})", isChecked: true);
+        }
+
+        layout.Controls.Add(_list);
+        layout.RowCount = 2;
+        AddButtons(layout, "추가");
+        Controls.Add(layout);
+    }
+
+    public IReadOnlyList<LanDiscovery.FoundHost> Selected =>
+        _list.CheckedIndices.Cast<int>().Select(i => _found[i]).ToList();
+}
+
 /// <summary>접속 비밀번호 설정</summary>
 internal sealed class PasswordDialog : DialogBase
 {

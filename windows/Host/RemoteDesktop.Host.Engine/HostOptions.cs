@@ -69,6 +69,11 @@ public sealed record HostOptions
     /// <summary>Client가 볼 모니터를 바꿀 수 있음 (STEP 9)</summary>
     public bool AllowMonitorSelect { get; init; } = true;
 
+    /// <summary>같은 네트워크의 Client가 이 PC를 자동으로 찾을 수 있음 (STEP 11, UDP)</summary>
+    public bool Discoverable { get; init; } = true;
+
+    public int DiscoveryPort { get; init; } = RemoteDesktop.Protocol.LanDiscovery.DefaultPort;
+
     public static HostOptions Parse(string[] args)
     {
         var options = new HostOptions();
@@ -98,6 +103,7 @@ public sealed record HostOptions
                 "--shared-folder" => options with { SharedFolder = ReadString(args, ref i) },
                 "--no-audio" => options with { AllowAudio = false },
                 "--allow-power" => options with { AllowPower = true },
+                "--no-discovery" => options with { Discoverable = false },
                 _ => throw new ArgumentException($"알 수 없는 옵션입니다: {args[i]}")
             };
         }
