@@ -224,6 +224,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         final text = message['text'] as String? ?? '';
         Clipboard.setData(ClipboardData(text: text));
         _snack('PC의 클립보드를 이 기기에 복사했습니다 (${text.length}자)');
+      case 'sas_result':
+        if (message['success'] != true) _snack('Ctrl+Alt+Del 실패: ${message['error']}');
       case 'power_result':
         _snack(message['success'] == true ? '요청을 보냈습니다: ${message['action']}' : '실패: ${message['error']}');
       case 'display_modes':
@@ -832,9 +834,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       case 'esc':
         _tapKeys(['Escape']);
       case 'cad':
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ctrl+Alt+Del은 Windows 보안 정책상 원격 입력으로 보낼 수 없습니다.'),
-        ));
+        if (_connection.hasFeature('sas')) {
+          _connection.send(sendSasMessage());
+        } else {
+          _snack('PC의 Host가 Windows 서비스로 설치되어 있어야 Ctrl+Alt+Del을 보낼 수 있습니다. (작업 관리자는 Ctrl+Shift+Esc)');
+        }
       case 'cmd':
         setState(() => _commandAsControl = !_commandAsControl);
       case 'monitor':

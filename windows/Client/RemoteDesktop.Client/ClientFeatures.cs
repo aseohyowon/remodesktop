@@ -20,6 +20,7 @@ public sealed class ClientFeatures : IDisposable
     private TaskCompletionSource<PowerResultMessage>? _power;
     private TaskCompletionSource<DisplayModesMessage>? _displayModes;
     private TaskCompletionSource<DisplayResultMessage>? _displayResult;
+    private TaskCompletionSource<SasResultMessage>? _sas;
     private FileReceiver? _downloadReceiver;
     private string? _downloadFolder;
     private ClipboardSync? _clipboard;
@@ -131,6 +132,15 @@ public sealed class ClientFeatures : IDisposable
         return await _displayResult.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
     }
 
+    // ---------------- Ctrl+Alt+Del (STEP 13) ----------------
+
+    public async Task<SasResultMessage> SendSasAsync(CancellationToken cancellationToken)
+    {
+        _sas = new TaskCompletionSource<SasResultMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _connection.SendAsync(new SendSasMessage());
+        return await _sas.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+    }
+
     // ---------------- 소리 ----------------
 
     public bool AudioEnabled => _audio is not null;
@@ -203,6 +213,10 @@ public sealed class ClientFeatures : IDisposable
 
             case DisplayResultMessage result:
                 _displayResult?.TrySetResult(result);
+                break;
+
+            case SasResultMessage sas:
+                _sas?.TrySetResult(sas);
                 break;
 
             case AudioFormatMessage format:

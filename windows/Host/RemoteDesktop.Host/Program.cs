@@ -29,6 +29,13 @@ internal static class Program
                 ["devices", .. var rest] => HostCommands.Devices(rest),
                 ["totp", .. var rest] => HostCommands.TotpCommand(rest),
                 ["log", .. var rest] => HostCommands.ShowLog(rest),
+                ["service", "run", .. var rest] => ServiceCommands.Run(rest),
+                ["service", "console", .. var rest] => await ServiceCommands.ConsoleAsync(rest),
+                ["service", "password", .. var rest] => ServiceCommands.Settings(rest, HostCommands.Password),
+                ["service", "devices", .. var rest] => ServiceCommands.Settings(rest, HostCommands.Devices),
+                ["service", "totp", .. var rest] => ServiceCommands.Settings(rest, HostCommands.TotpCommand),
+                ["service", "log", .. var rest] => ServiceCommands.Settings(rest, HostCommands.ShowLog),
+                ["agent", .. var rest] => await ServiceCommands.AgentAsync(rest),
                 ["-h"] or ["--help"] or ["help"] => PrintUsage(0),
                 _ => await RunHostAsync(args)
             };
@@ -116,6 +123,12 @@ internal static class Program
               RemoteDesktop.Host.exe devices [revoke <ID|all>]  신뢰된 장치 목록/해제
               RemoteDesktop.Host.exe totp enable|disable    2단계 인증(TOTP) 켜기/끄기
               RemoteDesktop.Host.exe log [개수]             접속 기록 보기
+
+            Windows 서비스 (STEP 13, 로그인/잠금/UAC 화면과 Ctrl+Alt+Del 지원):
+              설치/제거는 관리자 PowerShell에서 scripts\install-service.ps1 / uninstall-service.ps1
+              RemoteDesktop.Host.exe service password set   서비스용 비밀번호 (관리자)
+              RemoteDesktop.Host.exe service devices|totp|log  서비스용 설정 (관리자)
+              RemoteDesktop.Host.exe service console [옵션]  서비스 구조를 콘솔에서 시험 (권한 상승 없음)
 
             옵션:
               --port 50505         LAN 포트

@@ -76,6 +76,29 @@ remodesktop/
 | `SessionFeatures` | 클립보드(`ClipboardSync`), 파일(`FileReceiver`, 공유 폴더), 소리(`AudioStreamer`), 전원 |
 | `HostSettings` | Host ID, 비밀번호 키, 장치, TOTP, 시그널링 키 (DPAPI 암호화, 외부 변경 자동 반영) |
 | `AuthThrottle` | IP별 5회/5분, 전체 30회/10분 → 2분 차단 |
+| `DesktopThread` | 입력 데스크톱(Default ↔ Winlogon)을 따라가는 전용 스레드. 서비스 모드에서 캡처·입력을 여기서 실행 |
+| `AgentSupervisor` | 서비스: 콘솔 세션에 에이전트 하나 유지 (세션 변경 시 교체, 죽으면 1~30초 간격 재시작) |
+| `SessionAgentLauncher` | SYSTEM 토큰 복제 + 세션 번호 변경 → `CreateProcessAsUser`, Job Object(서비스 종료 시 에이전트도 종료) |
+| `SasPipe` | 에이전트 → 서비스 Ctrl+Alt+Del 요청 (이름 있는 파이프, 같은 계정만, 에이전트 PID 확인, 2초 제한) → `SendSAS` |
+
+### Windows 서비스 모드 (STEP 13)
+
+```text
+ 세션 0 (화면 없음)                          사용자 세션 (콘솔)
+┌──────────────────────────────┐           ┌──────────────────────────────────────────┐
+│ 서비스 RemoteDesktopHost      │  실행/감시 │ 에이전트 (SYSTEM)                          │
+│  RemoteDesktop.Host.exe       ├──────────►│  RemoteDesktop.Host.exe agent --pipe ...  │
+│  service run                  │           │  = HostServer (LAN/인터넷, 인증, 영상)      │
+│  - AgentSupervisor            │◄──────────┤  - DesktopThread: Default ↔ Winlogon      │
+│  - SasPipeServer → SendSAS    │ 파이프"sas"│    (로그인·잠금·UAC 화면 캡처/입력)         │
+└──────────────────────────────┘           └──────────────────────────────────────────┘
+ 설정: C:\ProgramData\RemoteDesktop (SYSTEM·Administrators만, DPAPI 이 PC 범위)
+```
+
+- 서비스는 화면이 없는 세션 0에서 실행되므로 직접 캡처할 수 없습니다. 그래서 사용자 세션에 에이전트를 띄웁니다.
+- 에이전트는 SYSTEM 권한이라 Winlogon 데스크톱(로그인/잠금/UAC 화면)을 열 수 있습니다. 화면이 바뀌면 `DesktopThread`가 `SetThreadDesktop`으로 옮기고 캡처 장치를 다시 만듭니다.
+- Ctrl+Alt+Del(`SendSAS`)은 서비스만 호출할 수 있어 파이프로 서비스에 요청합니다.
+- 서비스 모드에는 승인 창을 띄울 사람이 없을 수 있으므로 접속 코드와 승인 기능을 쓰지 않고 비밀번호/신뢰된 장치/2단계 인증으로만 접속합니다.
 
 ## 5. 흐름 제어와 지연
 
@@ -107,6 +130,6 @@ Host는 `hello.codecs`를 보고 고릅니다. GPU 인코더(NVENC/Quick Sync/AM
 
 | 위치 | 스레드 |
 |---|---|
-| Host 세션 | 수신 루프(입력·기능), 전송 루프(`Task.Run`), 클립보드 STA 스레드, 오디오 캡처 스레드 |
+| Host 세션 | 수신 루프(입력·기능), 전송 루프(`Task.Run`), 클립보드 STA 스레드, 오디오 캡처 스레드. 서비스 모드는 캡처용·입력용 `DesktopThread` 추가 |
 | Windows Client | 수신 루프(디코딩) → UI 스레드(`BeginInvoke`)에서 그리기/ack, 입력 전송 큐, 키보드 훅(UI 스레드) |
 | Flutter | 소켓/WebRTC 이벤트 → 이미지 디코딩(엔진) → setState. PBKDF2는 별도 isolate |

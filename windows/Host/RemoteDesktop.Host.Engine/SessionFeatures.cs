@@ -118,6 +118,10 @@ internal sealed class SessionFeatures : IDisposable
                 await HandlePowerAsync(power.Action);
                 return true;
 
+            case SendSasMessage:
+                await HandleSecureAttentionAsync();
+                return true;
+
             default:
                 return false;
         }
@@ -186,6 +190,30 @@ internal sealed class SessionFeatures : IDisposable
         {
             await SendAsync(new PowerResultMessage(action, false, exception.Message));
         }
+    }
+
+    /// <summary>Ctrl+Alt+Del: 서비스 모드에서만 (일반 프로그램은 만들 수 없는 키 조합)</summary>
+    private async Task HandleSecureAttentionAsync()
+    {
+        if (_server.SecureAttention is not { } send || _server.Options.ViewOnly)
+        {
+            await SendAsync(new SasResultMessage(false, "Ctrl+Alt+Del은 Host가 Windows 서비스로 실행 중일 때만 보낼 수 있습니다."));
+            return;
+        }
+
+        AccessLog.Write("sas", _remote, _clientName);
+        Log.Info($"Ctrl+Alt+Del requested by {_clientName}");
+        string? error;
+        try
+        {
+            error = await send(_cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            error = $"서비스에 요청하지 못했습니다: {exception.Message}";
+        }
+
+        await SendAsync(new SasResultMessage(error is null, error));
     }
 
     private async Task SendAsync(ControlMessage message)

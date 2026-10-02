@@ -29,13 +29,16 @@ internal sealed class VideoStreamer : IDisposable
     private readonly SemaphoreSlim _credits = new(MaxFramesInFlight, MaxFramesInFlight);
     private readonly ConcurrentDictionary<uint, long> _sentAt = new();
     private readonly AdaptiveQuality _adaptive;
+    private readonly DesktopThread? _desktop;
     private Rectangle _bounds;
     private Rectangle? _pendingBounds;
     private volatile bool _keyframeRequested = true;
     private string _codec;
 
-    public VideoStreamer(MessageChannel channel, HostOptions options, Rectangle bounds, string codec)
+    /// <param name="desktop">서비스 모드(STEP 13): 캡처를 입력 데스크톱을 따라가는 스레드에서 실행</param>
+    public VideoStreamer(MessageChannel channel, HostOptions options, Rectangle bounds, string codec, DesktopThread? desktop = null)
     {
+        _desktop = desktop;
         _channel = channel;
         _options = options;
         _bounds = bounds;
@@ -70,7 +73,12 @@ internal sealed class VideoStreamer : IDisposable
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        IScreenCapturer capturer = ScreenCapturerFactory.Create(_bounds);
+        int desktopGeneration = 0;
+        IScreenCapturer capturer = await OnDesktopAsync(() =>
+        {
+            desktopGeneration = _desktop?.Generation ?? 0;
+            return ScreenCapturerFactory.Create(_bounds);
+        });
         using var jpeg = new JpegFrameEncoder();
         H264Encoder? h264 = null;
         Bitmap? scaled = null;
@@ -136,7 +144,7 @@ internal sealed class VideoStreamer : IDisposable
                 {
                     capturer.Dispose();
                     _bounds = nb;
-                    capturer = ScreenCapturerFactory.Create(_bounds);
+                    capturer = await OnDesktopAsync(() => ScreenCapturerFactory.Create(_bounds));
                     _keyframeRequested = true;
                     Log.Info($"Switched capture to {nb.Width}x{nb.Height} at ({nb.X},{nb.Y})");
                 }
@@ -145,7 +153,19 @@ internal sealed class VideoStreamer : IDisposable
                 bool changed;
                 try
                 {
-                    changed = capturer.Capture();
+                    changed = await OnDesktopAsync(() =>
+                    {
+                        // 로그인/잠금/UAC 화면으로 바뀌었으면 새 데스크톱에서 캡처 장치를 다시 만듭니다.
+                        if (_desktop is not null && _desktop.Generation != desktopGeneration)
+                        {
+                            desktopGeneration = _desktop.Generation;
+                            capturer.Dispose();
+                            capturer = ScreenCapturerFactory.Create(_bounds);
+                            _keyframeRequested = true;
+                        }
+
+                        return capturer.Capture();
+                    });
                     captureBlockedLogged = false;
                 }
                 catch (Win32Exception exception)
@@ -268,6 +288,9 @@ internal sealed class VideoStreamer : IDisposable
             scaled?.Dispose();
         }
     }
+
+    private Task<T> OnDesktopAsync<T>(Func<T> function) =>
+        _desktop is null ? Task.FromResult(function()) : _desktop.InvokeAsync(function);
 
     private async Task SendStatsAsync(FrameStats.Window window, Size size, H264Encoder? encoder, CancellationToken cancellationToken)
     {

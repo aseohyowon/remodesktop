@@ -67,13 +67,18 @@ internal sealed class HostSession
         CancellationToken token = sessionCancellation.Token;
 
         var input = _server.Options.ViewOnly ? null : new InputInjector(_server.CaptureBounds);
-        using var video = new VideoStreamer(channel, _server.Options, _server.CaptureBounds, auth.Codec);
+
+        // 서비스 모드(STEP 13): 캡처와 입력을 각각 전용 스레드에서, 로그인/잠금/UAC 화면까지 따라가며 처리
+        using DesktopThread? captureDesktop = _server.Options.FollowInputDesktop ? new DesktopThread("desktop-capture") : null;
+        using DesktopThread? inputDesktop = _server.Options.FollowInputDesktop && input is not null ? new DesktopThread("desktop-input") : null;
+
+        using var video = new VideoStreamer(channel, _server.Options, _server.CaptureBounds, auth.Codec, captureDesktop);
         using var features = new SessionFeatures(_server, channel, _transport.RemoteDescription, auth.ClientName, token);
         using var display = new DisplaySession(_server.DisplayController); // 세션이 끝나면 바꾼 해상도를 되돌림
         using var sleepBlocker = new SleepBlocker();                        // 연결 중 절전 방지
         var view = new ViewState(_server.CaptureBounds);
 
-        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, features, display, view, token);
+        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, inputDesktop, features, display, view, token);
         Task sendTask = Task.Run(() => video.RunAsync(token), token);
         Task expiryTask = Task.Delay(_server.Options.MaxSessionDuration, token);
         Task kickTask = Task.Delay(Timeout.Infinite, hostUserDisconnect.Token);
@@ -125,7 +130,18 @@ internal sealed class HostSession
             // 종료 과정의 예외는 무시합니다.
         }
 
-        input?.ReleaseAll();
+        if (input is not null)
+        {
+            if (inputDesktop is not null)
+            {
+                await inputDesktop.InvokeAsync(input.ReleaseAll);
+            }
+            else
+            {
+                input.ReleaseAll();
+            }
+        }
+
         Log.Info($"Video stream ended: {reason} ({video.Stats.TotalFrames} frames sent, {input?.EventCount ?? 0} input events)");
         return reason;
     }
@@ -142,6 +158,7 @@ internal sealed class HostSession
         MessageChannel channel,
         VideoStreamer video,
         InputInjector? input,
+        DesktopThread? inputDesktop,
         SessionFeatures features,
         DisplaySession display,
         ViewState view,
@@ -208,7 +225,16 @@ internal sealed class HostSession
                     Log.Info($"Client said bye: {HostAuthenticator.Sanitize(bye.Reason)}");
                     return "Client가 연결을 종료했습니다.";
 
-                case { } control when input is not null && input.TryHandle(control):
+                case { } control when input is not null && InputInjector.IsInputMessage(control):
+                    if (inputDesktop is not null)
+                    {
+                        await inputDesktop.InvokeAsync(() => input.TryHandle(control));
+                    }
+                    else
+                    {
+                        input.TryHandle(control);
+                    }
+
                     break;
 
                 default:

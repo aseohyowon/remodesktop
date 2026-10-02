@@ -613,6 +613,45 @@ Wake-on-LAN을 쓰려면 Host PC에서 한 번 설정해야 합니다:
 
 자동 테스트: `Step12Tests`(C#: MAC 형식, 매직 패킷 UDP 왕복, 실제 드라이버 해상도 목록 + CDS_TEST 확인(실제 변경 없음), 절전 방지, 가짜 제어기로 1280x720 변경 → 프레임 크기 확인 → 끊으면 복원, 화면만 보기에서 꺼짐), `wake_on_lan_test.dart`(Dart: C#과 같은 패킷인지, UDP 왕복).
 
+## STEP 13 - Windows 서비스 (로그인·잠금·UAC 화면, Ctrl+Alt+Del)
+
+일반 앱으로는 로그인 화면, 잠금 화면, UAC 확인 창을 볼 수 없고 Ctrl+Alt+Del도 보낼 수 없습니다(Windows 보안 정책).
+Host를 **Windows 서비스**로 설치하면 이 제약이 풀리고, PC를 켜기만 하면(로그인 전이라도) 원격으로 쓸 수 있습니다.
+
+### 설치 (원격으로 조작당할 PC에서, 관리자 PowerShell)
+
+```powershell
+cd C:\Users\kk\github\remodesk
+.\scripts\publish-windows.ps1          # dist\host\RemoteDesktop.Host.exe 만들기
+.\scripts\install-service.ps1          # 비밀번호 입력 → 서비스 설치·시작
+# 인터넷 연결도 쓰려면
+.\scripts\install-service.ps1 -HostArgs "--signal","wss://signal.example.com/ws"
+```
+
+| 항목 | 값 |
+|---|---|
+| 서비스 이름 | `RemoteDesktopHost` (자동 시작, 실패하면 5초 뒤 다시 시작) |
+| 프로그램 | `C:\Program Files\RemoteDesktop\RemoteDesktop.Host.exe` |
+| 설정·로그 | `C:\ProgramData\RemoteDesktop` (`service.log`, `agent.log`, `host.json`) — 관리자만 열 수 있음 |
+| 인증 | 비밀번호(필수), 신뢰된 장치, 2단계 인증. 접속 코드·승인 창은 서비스 모드에서 쓰지 않음 |
+| 공유 폴더 | `C:\Users\Public\Documents\RemoteDesktop` |
+| 설정 바꾸기 (관리자) | `& "C:\Program Files\RemoteDesktop\RemoteDesktop.Host.exe" service password set` / `service devices` / `service totp enable` / `service log` |
+| 제거 | `.\scripts\uninstall-service.ps1` (설정까지 지우려면 `-RemoveData`) |
+
+- 서비스가 50505 포트를 쓰므로 같은 PC에서 RemoteDesktop 앱의 [내 PC 원격 허용]은 끄세요.
+- Client 쪽은 바뀐 것이 없습니다. 원격 창 `특수 키 → Ctrl+Alt+Del`(모바일: 메뉴 → Ctrl+Alt+Del)이 서비스 모드 Host에서만 동작합니다.
+- 서비스 없이 구조만 시험: `RemoteDesktop.Host.exe service console --port 50515` (현재 사용자 권한이라 로그인/UAC 화면과 Ctrl+Alt+Del은 안 됨)
+
+### 동작 방식
+
+서비스(세션 0, 화면 없음)가 지금 화면 앞의 사용자 세션에 SYSTEM 권한 **에이전트**를 띄웁니다. 에이전트가 실제 Host이고,
+화면이 로그인/잠금/UAC 화면(Winlogon 데스크톱)으로 바뀌면 따라가서 캡처·입력합니다. 로그아웃·사용자 전환으로 세션이 바뀌면
+에이전트를 새 세션에 다시 띄웁니다. 자세한 구조는 [architecture.md](architecture.md), 보안 설계는 [security.md](security.md) 참고.
+
+자동 테스트: `Step13Tests`(C#: 데스크톱 스레드 순서·예외·입력 데스크톱 이름, 에이전트 감시(세션 변경·재시작 간격·실패 재시도·세션 0 제외),
+명령줄 따옴표, 실제 프로세스 실행 + Job Object 종료, 권한 없을 때 SYSTEM 실행 실패 메시지, Ctrl+Alt+Del 파이프(PID 확인, 2초 제한),
+서비스 모드 세션의 영상·`sas` 기능, 일반 Host에는 `sas` 없음, 실제 `service console` → 에이전트 연결(환경 변수 `REMODESK_E2E_PORT`, `REMODESK_E2E_PASSWORD`)).
+
 ## 이 PC에서 자동/실기 테스트로 확인한 것
 
 | 항목 | 방법 | 결과 |
@@ -620,7 +659,10 @@ Wake-on-LAN을 쓰려면 Host PC에서 한 번 설정해야 합니다:
 | 통합 앱 실제 사용 흐름 | UI 자동화(실제 마우스 클릭): 연결 → 로그인 → 지문 확인 → 원격 화면 → 도구 모음 → 닫기 | 통과, 원격 화면 1080p H.264 표시, "연결 좋음 · H264 · 16 ms" |
 | GPU H.264 | AMD `AMDh264Encoder` → Windows 디코더 | 통과 (PSNR 약 33 dB) |
 | 소리 | 톤 재생 → Client가 받은 PCM | 통과 (1.5초 재생 → 1.8초 분량 수신, 조용할 때는 0) |
-| 파일·클립보드·전원·검색·해상도·WoL | C# 94개 + Dart 52개(47 통과, 5개는 실제 Host 필요해 건너뜀) | 통과 |
+| 파일·클립보드·전원·검색·해상도·WoL·서비스 | C# 111개 + Dart 52개(47 통과, 5개는 실제 Host 필요해 건너뜀) | 통과 |
+| 서비스 구조 (STEP 13) | 단일 파일 배포 exe로 `service console` → 에이전트 자동 실행 → 비밀번호로 연결 → 1920x1080 영상 → Ctrl+Alt+Del 요청이 파이프로 서비스까지 왕복 | 통과 |
+| 에이전트 재시작·정리 | 에이전트 강제 종료 → 새 에이전트 자동 실행, 서비스 강제 종료 → 에이전트도 종료(Job Object) | 통과 |
+| 설치 스크립트 | PowerShell 구문 검사, 관리자 권한 없이 실행 시 안내 후 중단 | 통과 (실제 설치는 관리자 승인 필요 → 집에서) |
 | 해상도 메뉴 (STEP 12) | UI 자동화: 원격 창 `해상도` 메뉴 열기 (실제로 바꾸지는 않음) | 통과, `원래대로 (1920x1080)`, `이 창 크기에 맞추기`, 드라이버 해상도 10개 표시 |
 | Dart 앱 ↔ C# Host | 접속 코드·비밀번호·신뢰 장치·파일·브로드캐스트 검색 | 통과 |
 | 배포 exe | `dist\host\RemoteDesktop.Host.exe` 실행 후 연결 | 통과 |
@@ -650,6 +692,17 @@ Wake-on-LAN을 쓰려면 Host PC에서 한 번 설정해야 합니다:
 | `해상도` → 1280 x 720 | PC B 화면이 바뀌고, 원격 창을 닫으면 원래 해상도로 |
 | 연결한 채로 PC B 절전 시간보다 오래 두기 | PC B가 잠들지 않음 |
 | PC B 절전(또는 종료) → PC A `PC 켜기` | 30초~1분 안에 PC B가 켜지고 Online (위 Wake-on-LAN 설정 필요) |
+
+**서비스 모드 (STEP 13)** — PC B에서 앱의 [내 PC 원격 허용]을 끄고 관리자 PowerShell로 `.\scripts\publish-windows.ps1` → `.\scripts\install-service.ps1`
+
+| 확인 | 기대 결과 |
+|---|---|
+| PC A에서 비밀번호로 연결 | 평소처럼 원격 화면 |
+| `특수 키 → Ctrl+Alt+Del` | PC B에 Ctrl+Alt+Del 화면(잠금/사용자 전환/작업 관리자…)이 보이고 클릭 가능 |
+| PC B에서 관리자 권한이 필요한 프로그램 실행 (UAC 창) | UAC 확인 창이 원격 화면에 보이고 `예`를 누를 수 있음 |
+| `전원 → 화면 잠금` → 원격으로 비밀번호/PIN 입력 | 잠금 화면이 보이고 다시 로그인됨 |
+| `전원 → 다시 시작`(설치할 때 필요: `-HostArgs "--allow-power"`) → 1~2분 뒤 다시 연결 | **로그인 전 화면**이 보이고 원격으로 로그인 가능 |
+| 문제가 있으면 | `C:\ProgramData\RemoteDesktop\service.log`, `agent.log` 내용을 알려 주세요 (관리자 권한으로 열기) |
 
 ### B. Android 폰
 

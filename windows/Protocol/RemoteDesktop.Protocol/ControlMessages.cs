@@ -39,6 +39,8 @@ namespace RemoteDesktop.Protocol;
 [JsonDerivedType(typeof(DisplayModesMessage), "display_modes")]
 [JsonDerivedType(typeof(SetResolutionMessage), "set_resolution")]
 [JsonDerivedType(typeof(DisplayResultMessage), "display_result")]
+[JsonDerivedType(typeof(SendSasMessage), "send_sas")]
+[JsonDerivedType(typeof(SasResultMessage), "sas_result")]
 public abstract record ControlMessage;
 
 /// <summary>
@@ -111,6 +113,9 @@ public static class HostFeatures
     public const string Power = "power";
     public const string MonitorSelect = "monitor_select";
     public const string Display = "display";
+
+    /// <summary>Ctrl+Alt+Del 보내기 (STEP 13, Host가 Windows 서비스로 실행 중일 때만)</summary>
+    public const string SecureAttention = "sas";
 }
 
 public static class AuthMethods
@@ -244,6 +249,13 @@ public sealed record DisplayModesMessage(DisplayMode Current, DisplayMode Origin
 public sealed record SetResolutionMessage(int Width, int Height) : ControlMessage;
 
 public sealed record DisplayResultMessage(bool Success, DisplayMode? Current = null, string? Error = null) : ControlMessage;
+
+// ---------------- STEP 13: 보안 화면 ----------------
+
+/// <summary>Client → Host. Ctrl+Alt+Del (Secure Attention Sequence). 기능 "sas"가 있을 때만</summary>
+public sealed record SendSasMessage() : ControlMessage;
+
+public sealed record SasResultMessage(bool Success, string? Error = null) : ControlMessage;
 
 public static class ProtocolJson
 {

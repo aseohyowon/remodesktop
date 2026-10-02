@@ -76,6 +76,12 @@ public sealed class HostServer
 
     internal bool CanChangeResolution => Options.AllowResolutionChange && !Options.ViewOnly;
 
+    /// <summary>
+    /// Ctrl+Alt+Del 보내기 (STEP 13). Windows 서비스 모드의 에이전트만 설정합니다.
+    /// 성공하면 null, 실패하면 오류 문구를 돌려줍니다.
+    /// </summary>
+    public Func<CancellationToken, Task<string?>>? SecureAttention { get; set; }
+
     public bool HasActiveSession => Volatile.Read(ref _streamingSessions) == 1;
 
     public static IEnumerable<IPAddress> GetLanAddresses() =>
@@ -340,6 +346,7 @@ public sealed class HostServer
         if (!Options.ViewOnly) features.Add(HostFeatures.Power);
         if (Options.AllowMonitorSelect) features.Add(HostFeatures.MonitorSelect);
         if (CanChangeResolution) features.Add(HostFeatures.Display);
+        if (SecureAttention is not null && !Options.ViewOnly) features.Add(HostFeatures.SecureAttention);
         return features.ToArray();
     }
 

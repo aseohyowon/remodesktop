@@ -128,6 +128,15 @@ WebRTC Data Channel은 메시지 단위이므로, 아래 바이트 스트림을 
 - Client는 이것을 저장해 두었다가, PC가 꺼져 있을 때 매직 패킷(FF×6 + MAC×16 = 102바이트)을 UDP 9번 브로드캐스트로 보냅니다.
 - 세션이 열려 있는 동안 Host는 `SetThreadExecutionState`로 절전·화면 꺼짐을 막습니다.
 
+### Ctrl+Alt+Del (STEP 13, 기능 이름 `sas`)
+
+| type | 방향 | 필드 |
+|---|---|---|
+| `send_sas` | C→H | — |
+| `sas_result` | H→C | `success`, `error`? |
+
+Host가 Windows 서비스로 실행 중이고 화면만 보기가 아닐 때만 `features`에 `sas`가 있습니다. 없으면 Client는 안내 문구만 보여 줍니다.
+
 ## 4. 인증 계산
 
 ```text

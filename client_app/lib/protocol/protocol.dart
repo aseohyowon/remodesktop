@@ -255,6 +255,9 @@ Map<String, Object?> fileResultMessage(int transferId, bool success, {String? er
 
 Map<String, Object?> powerActionMessage(String action) => {'type': 'power_action', 'action': action};
 
+/// Ctrl+Alt+Del (STEP 13). Host 기능 'sas'가 있을 때만 (Host가 Windows 서비스로 실행 중)
+Map<String, Object?> sendSasMessage() => {'type': 'send_sas'};
+
 Map<String, Object?> keyframeRequestMessage() => {'type': 'keyframe_request'};
 
 // ---- STEP 12 ----

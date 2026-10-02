@@ -63,6 +63,7 @@ channel_binding = LAN: SHA-256(Host TLS 인증서)
 | `devices.json` (Client) | 신뢰된 장치 자격 증명 | DPAPI |
 | `known_hosts.json` (Client) | Host ID → 인증서 지문 | 비밀 아님 |
 | `access-log.jsonl` | 접속 기록 | 비밀값 없음 |
+| 서비스 모드 `C:\ProgramData\RemoteDesktop` (STEP 13) | `host.json`, TLS 인증서(`host-certificate.protected`), 접속 기록, 로그 | 비밀값은 DPAPI(**이 PC 범위**). 대신 폴더 권한을 SYSTEM과 Administrators만으로 제한(상속 끊음) |
 | 모바일 앱 | 장치 비밀키 | iOS/macOS 키체인, Android Keystore (flutter_secure_storage) |
 
 `host.json`은 실행 중인 Host 옆에서 바뀌어도(예: `devices revoke`) 다음 인증부터 바로 반영됩니다.
@@ -81,8 +82,22 @@ channel_binding = LAN: SHA-256(Host TLS 인증서)
 
 - **UIPI**: 일반 권한 Host는 관리자 권한 창을 조작할 수 없습니다. 필요하면 Host를 관리자 권한으로 실행합니다.
 - **보안 데스크톱**: 로그인 화면, 잠금 화면, UAC 확인 창은 일반 프로그램이 캡처하거나 조작할 수 없습니다.
-  제대로 지원하려면 SYSTEM 권한 Windows 서비스 + 사용자 세션 에이전트 구조가 필요합니다 (향후 과제).
-- **Ctrl+Alt+Del**: Secure Attention Sequence라 키 입력으로 만들 수 없습니다. 대안으로 [작업 관리자(Ctrl+Shift+Esc)]와 [화면 잠금]을 제공합니다.
+  → Windows 서비스 모드(STEP 13)에서 지원합니다.
+- **Ctrl+Alt+Del**: Secure Attention Sequence라 키 입력으로 만들 수 없습니다. 일반 모드에서는 [작업 관리자(Ctrl+Shift+Esc)]와 [화면 잠금]을 제공합니다.
+  → 서비스 모드에서는 서비스가 `SendSAS`로 보냅니다 (Windows 정책 `SoftwareSASGeneration`=1 필요, 설치 스크립트가 설정하고 제거 시 원래 값으로 되돌림).
+
+### Windows 서비스 모드의 보안 설계 (STEP 13)
+
+서비스 모드의 에이전트는 SYSTEM 권한이므로 원격 사용자는 사실상 PC 전체를 다룰 수 있습니다. 그래서:
+
+| 위험 | 대책 |
+|---|---|
+| 화면 앞에 아무도 없을 때 접속 | 접속 코드·승인을 쓰지 않고 **비밀번호(필수) / 신뢰된 장치 / 2단계 인증**만 허용. 설치 스크립트가 비밀번호를 먼저 설정 |
+| 실행 파일 바꿔치기로 SYSTEM 권한 탈취 | 실행 파일을 `C:\Program Files\RemoteDesktop`(관리자만 쓰기 가능)에 복사해 그 경로로 서비스 등록 |
+| 설정 파일 탈취·변조 | `C:\ProgramData\RemoteDesktop` 폴더 권한을 SYSTEM·Administrators만으로 제한. 설정 변경(`service password` 등)은 관리자만 |
+| 다른 프로그램이 Ctrl+Alt+Del 요청 | 파이프는 같은 계정(SYSTEM)만 연결(`CurrentUserOnly`), 연결한 프로세스가 서비스가 띄운 에이전트인지 PID로 확인, 2초에 한 번 |
+| 서비스가 죽었는데 에이전트만 남음 | 에이전트를 Job Object(KILL_ON_JOB_CLOSE)에 넣어 서비스와 함께 종료 |
+| 인터넷 노출 | 방화벽 규칙은 개인 네트워크만. 인터넷은 시그널링(WebRTC) 사용 시에만, 이때는 2단계 인증 권장 |
 
 ## 6. 운영 권장 사항
 

@@ -86,6 +86,7 @@ internal sealed class ViewerForm : Form
         _features.RemoteClipboardReceived += OnRemoteClipboard;
 
         bool canInput = connection.HasFeature(HostFeatures.Input);
+        _secureAttention = connection.HasFeature(HostFeatures.SecureAttention);
         _clipboardButton.Enabled = connection.HasFeature(HostFeatures.Clipboard);
         _audioButton.Enabled = connection.HasFeature(HostFeatures.Audio);
         if (_clipboardButton.Enabled && _clipboardButton.Checked)
@@ -249,10 +250,7 @@ internal sealed class ViewerForm : Form
         _resolutionButton.DropDownOpening += async (_, _) => await LoadResolutionsAsync();
 
         var keys = new ToolStripDropDownButton("특수 키") { Tag = "input" };
-        keys.DropDownItems.Add("Ctrl+Alt+Del 안내", null, (_, _) => MessageBox.Show(this,
-            "Ctrl+Alt+Del은 Windows 보안 정책상 일반 프로그램이 원격으로 보낼 수 없습니다.\n\n" +
-            "• 작업 관리자: [Ctrl+Shift+Esc]를 사용하세요.\n• 화면 잠금: [전원 → 화면 잠금]을 사용하세요.",
-            "Ctrl+Alt+Del", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        keys.DropDownItems.Add("Ctrl+Alt+Del", null, async (_, _) => await SendSasAsync());
         keys.DropDownItems.Add("작업 관리자 (Ctrl+Shift+Esc)", null, (_, _) => TapKeys("ControlLeft", "ShiftLeft", "Escape"));
         keys.DropDownItems.Add("Windows 키", null, (_, _) => TapKeys("MetaLeft"));
         keys.DropDownItems.Add("Alt+Tab", null, (_, _) => TapKeys("AltLeft", "Tab"));
@@ -354,6 +352,35 @@ internal sealed class ViewerForm : Form
         catch (TimeoutException)
         {
             _qualityLabel.Text = "해상도 변경 응답이 없습니다.";
+        }
+    }
+
+    private bool _secureAttention;
+
+    /// <summary>Ctrl+Alt+Del: Host가 Windows 서비스로 실행 중일 때만 (STEP 13)</summary>
+    private async Task SendSasAsync()
+    {
+        if (!_secureAttention)
+        {
+            MessageBox.Show(this,
+                "원격 PC의 Host가 Windows 서비스로 설치되어 있어야 Ctrl+Alt+Del을 보낼 수 있습니다.\n" +
+                "(원격 PC에서 관리자 PowerShell로 scripts\\install-service.ps1 실행)\n\n" +
+                "• 작업 관리자: [Ctrl+Shift+Esc]를 사용하세요.\n• 화면 잠금: [전원 → 화면 잠금]을 사용하세요.",
+                "Ctrl+Alt+Del", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            SasResultMessage result = await _features.SendSasAsync(_closing.Token);
+            if (!result.Success)
+            {
+                MessageBox.Show(this, result.Error ?? "실패했습니다.", "Ctrl+Alt+Del", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        catch (TimeoutException)
+        {
+            MessageBox.Show(this, "응답이 없습니다.", "Ctrl+Alt+Del", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 

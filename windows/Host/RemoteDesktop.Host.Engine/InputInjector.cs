@@ -35,6 +35,9 @@ internal sealed class InputInjector
     /// <summary>보고 있는 모니터가 바뀌면 0~1 좌표의 기준 영역도 바꿉니다.</summary>
     public void SetBounds(Rectangle bounds) => _bounds = bounds;
 
+    public static bool IsInputMessage(ControlMessage message) =>
+        message is MouseMoveMessage or MouseButtonMessage or MouseWheelMessage or KeyDownMessage or KeyUpMessage or TextInputMessage;
+
     /// <summary>입력 메시지면 처리하고 true, 입력 메시지가 아니면 false.</summary>
     public bool TryHandle(ControlMessage message)
     {

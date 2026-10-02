@@ -21,6 +21,17 @@ public interface IPowerController
 /// </summary>
 public sealed class WindowsPowerController : IPowerController
 {
+    private readonly bool _sessionAgent;
+
+    /// <param name="sessionAgent">
+    /// 서비스 모드 에이전트(STEP 13, SYSTEM 권한): 로그아웃은 ExitWindowsEx 대신 WTSLogoffSession으로
+    /// 에이전트가 떠 있는 사용자 세션을 로그아웃합니다. (SYSTEM의 ExitWindowsEx는 사용자 세션을 대상으로 하지 않음)
+    /// </param>
+    public WindowsPowerController(bool sessionAgent = false)
+    {
+        _sessionAgent = sessionAgent;
+    }
+
     public void Execute(string action)
     {
         switch (action)
@@ -29,6 +40,13 @@ public sealed class WindowsPowerController : IPowerController
                 if (!LockWorkStation())
                 {
                     throw new InvalidOperationException($"화면 잠금 실패 (Win32 오류 {Marshal.GetLastWin32Error()})");
+                }
+
+                break;
+            case "logoff" when _sessionAgent:
+                if (!WTSLogoffSession(IntPtr.Zero, (uint)Process.GetCurrentProcess().SessionId, false))
+                {
+                    throw new InvalidOperationException($"로그아웃 실패 (Win32 오류 {Marshal.GetLastWin32Error()})");
                 }
 
                 break;
@@ -69,6 +87,9 @@ public sealed class WindowsPowerController : IPowerController
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool ExitWindowsEx(uint flags, uint reason);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    private static extern bool WTSLogoffSession(IntPtr server, uint sessionId, bool wait);
 }
 
 /// <summary>

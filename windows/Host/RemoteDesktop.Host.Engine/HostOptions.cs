@@ -77,6 +77,12 @@ public sealed record HostOptions
 
     public int DiscoveryPort { get; init; } = RemoteDesktop.Protocol.LanDiscovery.DefaultPort;
 
+    /// <summary>
+    /// 입력 데스크톱(로그인/잠금/UAC 화면 포함)을 따라가며 캡처·입력 (STEP 13).
+    /// Windows 서비스가 SYSTEM 권한으로 띄운 에이전트에서 켭니다. 명령줄 옵션은 없습니다.
+    /// </summary>
+    public bool FollowInputDesktop { get; init; }
+
     public static HostOptions Parse(string[] args)
     {
         var options = new HostOptions();
