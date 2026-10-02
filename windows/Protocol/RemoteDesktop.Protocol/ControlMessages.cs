@@ -35,6 +35,10 @@ namespace RemoteDesktop.Protocol;
 [JsonDerivedType(typeof(AudioFormatMessage), "audio_format")]
 [JsonDerivedType(typeof(PowerActionMessage), "power_action")]
 [JsonDerivedType(typeof(PowerResultMessage), "power_result")]
+[JsonDerivedType(typeof(DisplayModesRequestMessage), "display_modes_request")]
+[JsonDerivedType(typeof(DisplayModesMessage), "display_modes")]
+[JsonDerivedType(typeof(SetResolutionMessage), "set_resolution")]
+[JsonDerivedType(typeof(DisplayResultMessage), "display_result")]
 public abstract record ControlMessage;
 
 /// <summary>
@@ -91,7 +95,8 @@ public sealed record AuthResultMessage(
     string? ErrorCode = null,
     MonitorInfo[]? Monitors = null,
     string? VideoCodec = null,
-    string[]? Features = null) : ControlMessage;
+    string[]? Features = null,
+    string[]? MacAddresses = null) : ControlMessage;
 
 /// <summary>Host의 모니터. index는 select_monitor에 사용 (0부터, -1 = 전체)</summary>
 public sealed record MonitorInfo(int Index, int X, int Y, int Width, int Height, bool Primary);
@@ -105,6 +110,7 @@ public static class HostFeatures
     public const string Audio = "audio";
     public const string Power = "power";
     public const string MonitorSelect = "monitor_select";
+    public const string Display = "display";
 }
 
 public static class AuthMethods
@@ -223,6 +229,21 @@ public sealed record AudioFormatMessage(string Codec, int SampleRate, int Channe
 public sealed record PowerActionMessage(string Action) : ControlMessage;
 
 public sealed record PowerResultMessage(string Action, bool Success, string? Error = null) : ControlMessage;
+
+// ---------------- STEP 12: 해상도 ----------------
+
+/// <summary>Client → Host. 지금 보고 있는 모니터에서 쓸 수 있는 해상도 목록 요청</summary>
+public sealed record DisplayModesRequestMessage() : ControlMessage;
+
+public sealed record DisplayMode(int Width, int Height);
+
+/// <summary>Host → Client. current: 지금 해상도, original: 세션 시작 전 해상도(되돌리기용)</summary>
+public sealed record DisplayModesMessage(DisplayMode Current, DisplayMode Original, DisplayMode[] Modes) : ControlMessage;
+
+/// <summary>Client → Host. 해상도 변경. width/height가 0이면 원래 해상도로 되돌림</summary>
+public sealed record SetResolutionMessage(int Width, int Height) : ControlMessage;
+
+public sealed record DisplayResultMessage(bool Success, DisplayMode? Current = null, string? Error = null) : ControlMessage;
 
 public static class ProtocolJson
 {

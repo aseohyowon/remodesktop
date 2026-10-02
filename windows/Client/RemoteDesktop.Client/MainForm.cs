@@ -118,6 +118,7 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
 
         Add("연결", ConnectSelectedAsync).Font = new Font(Font, FontStyle.Bold);
         Add("같은 네트워크에서 찾기", DiscoverAsync);
+        Add("PC 켜기", WakeSelectedAsync);
         Add("PC 추가", () => { EditHost(null); return Task.CompletedTask; });
         Add("편집", () => { if (Selected is { } h) EditHost(h); return Task.CompletedTask; });
         Add("삭제", () => { DeleteSelected(); return Task.CompletedTask; });
@@ -313,9 +314,14 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
                 connection = await ConnectAsync(host, login, CancellationToken.None);
             }
 
-            if (host.HostId != connection.HostId)
+            if (host.HostId != connection.HostId || !host.Mac.SequenceEqual(connection.MacAddresses))
             {
                 host.HostId = connection.HostId;
+                if (connection.MacAddresses.Length > 0)
+                {
+                    host.Mac = connection.MacAddresses.ToList(); // 다음에 꺼져 있으면 Wake-on-LAN으로 켤 수 있게
+                }
+
                 _settings.Save();
                 ReloadHostList();
             }
@@ -385,13 +391,40 @@ internal sealed class MainForm : Form, IConnectPrompts, IHostCallbacks
 
         foreach (var host in dialog.Selected)
         {
-            _settings.Hosts.Add(new SavedHost { Name = host.HostName, Address = host.Address.ToString(), Port = host.Port, HostId = host.HostId });
+            _settings.Hosts.Add(new SavedHost { Name = host.HostName, Address = host.Address.ToString(), Port = host.Port, HostId = host.HostId, Mac = host.Mac.ToList() });
         }
 
         _settings.Save();
         ReloadHostList();
         _connectStatus.Text = $"{dialog.Selected.Count}대를 추가했습니다.";
         await RefreshStatusAsync();
+    }
+
+    /// <summary>
+    /// 꺼져 있거나 절전 중인 PC를 Wake-on-LAN 매직 패킷으로 깨웁니다 (같은 네트워크에서만).
+    /// 한 번이라도 연결했거나 검색으로 추가한 PC만 MAC 주소를 알고 있습니다.
+    /// </summary>
+    private async Task WakeSelectedAsync()
+    {
+        if (Selected is not { } host)
+        {
+            _connectStatus.Text = "켤 PC를 목록에서 선택하세요.";
+            return;
+        }
+
+        if (host.Mac.Count == 0)
+        {
+            _connectStatus.Text = "이 PC의 MAC 주소를 모릅니다. 한 번 연결하거나 [같은 네트워크에서 찾기]로 추가하면 켤 수 있습니다.";
+            return;
+        }
+
+        int sent = await WakeOnLan.WakeAsync(host.Mac);
+        _connectStatus.Text = sent == 0
+            ? "MAC 주소가 올바르지 않습니다."
+            : $"{host.Name}에 켜기 신호를 보냈습니다. PC가 켜지는 데 30초~1분 걸릴 수 있습니다. (PC의 BIOS와 네트워크 어댑터에서 Wake-on-LAN이 켜져 있어야 합니다)";
+
+        // 잠시 후 상태를 다시 확인
+        _ = Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => BeginInvoke(() => _ = RefreshStatusAsync()), TaskScheduler.Default);
     }
 
     private LoginRequest? AskLogin(SavedHost host)

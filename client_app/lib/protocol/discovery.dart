@@ -14,11 +14,14 @@ import 'dart:math';
 const int discoveryPort = 50506;
 
 class FoundHost {
-  FoundHost(this.hostId, this.hostName, this.address, this.port);
+  FoundHost(this.hostId, this.hostName, this.address, this.port, [this.mac = const []]);
   final String hostId;
   final String hostName;
   final String address;
   final int port;
+
+  /// Wake-on-LAN용 MAC 주소
+  final List<String> mac;
 }
 
 String createProbe(String nonce) => jsonEncode({'type': 'rd_discover', 'version': 1, 'nonce': nonce});
@@ -33,7 +36,8 @@ FoundHost? parseReply(List<int> data, String nonce, String fromAddress) {
     final hostId = m['host_id'] as String? ?? '';
     if (port <= 0 || port > 65535 || hostId.isEmpty) return null;
     final name = (m['host_name'] as String? ?? '-').replaceAll(RegExp(r'[\x00-\x1F]'), '');
-    return FoundHost(hostId, name.length > 64 ? name.substring(0, 64) : name, fromAddress, port);
+    final mac = ((m['mac'] as List?) ?? []).whereType<String>().where((x) => x.length <= 17).take(8).toList();
+    return FoundHost(hostId, name.length > 64 ? name.substring(0, 64) : name, fromAddress, port, mac);
   } catch (_) {
     return null;
   }
@@ -61,10 +65,13 @@ Future<List<FoundHost>> discoverHosts({
 
   final probe = utf8.encode(createProbe(nonce));
   for (final target in targets ?? [InternetAddress('255.255.255.255')]) {
-    try {
-      socket.send(probe, target, port);
-    } catch (_) {
-      // 브로드캐스트 권한이 없는 플랫폼 등
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (socket.send(probe, target, port) > 0) break; // 0이면 버퍼가 잠깐 차 있음 → 다시 시도
+      } catch (_) {
+        break; // 브로드캐스트 권한이 없는 플랫폼 등
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
     }
   }
 

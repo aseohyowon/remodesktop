@@ -185,7 +185,8 @@ internal sealed class HostAuthenticator
                 DeviceSecret: newDeviceSecret is null ? null : Convert.ToBase64String(newDeviceSecret),
                 Monitors: _server.Options.AllowMonitorSelect ? HostServer.ListMonitors() : null,
                 VideoCodec: codec,
-                Features: _server.EnabledFeatures()), cancellationToken);
+                Features: _server.EnabledFeatures(),
+                MacAddresses: WakeOnLan.LocalMacAddresses()), cancellationToken);
 
             if (newDeviceSecret is not null)
             {

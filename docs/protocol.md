@@ -108,6 +108,26 @@ WebRTC Data Channel은 메시지 단위이므로, 아래 바이트 스트림을 
 
 업로드는 Host의 `공유 폴더\Received`에 저장하고, 다운로드는 `공유 폴더`의 파일만 보낼 수 있습니다.
 
+### 해상도 (STEP 12, 기능 이름 `display`)
+
+| type | 방향 | 필드 |
+|---|---|---|
+| `display_modes_request` | C→H | — 보고 있는 모니터의 해상도 목록 요청 |
+| `display_modes` | H→C | `current`, `original`, `modes`: [{`width`, `height`}] |
+| `set_resolution` | C→H | `width`, `height` (둘 다 0 = 원래대로) |
+| `display_result` | H→C | `success`, `current`?, `error`? (목록 요청이 거부될 때도 이 메시지) |
+
+- Host는 `modes`에 있는 값만 받아들이고, 바꾸기 전에 `CDS_TEST`로 드라이버 확인을 거칩니다.
+- 변경은 레지스트리에 저장하지 않는 임시 변경(동적 모드)이며, **세션이 끝나면 Host가 원래 해상도로 되돌립니다.**
+- 화면만 보기 세션, `--no-resolution-change`, "모든 모니터" 보기에서는 쓸 수 없습니다.
+
+### Wake-on-LAN용 MAC 주소 (STEP 12)
+
+- `auth_result`(성공)에 `mac_addresses`: ["AA-BB-CC-DD-EE-FF", ...] (최대 8개, 물리 이더넷/Wi-Fi 어댑터)
+- 검색 응답 `rd_host`에 `mac`: [...] (7절)
+- Client는 이것을 저장해 두었다가, PC가 꺼져 있을 때 매직 패킷(FF×6 + MAC×16 = 102바이트)을 UDP 9번 브로드캐스트로 보냅니다.
+- 세션이 열려 있는 동안 Host는 `SetThreadExecutionState`로 절전·화면 꺼짐을 막습니다.
+
 ## 4. 인증 계산
 
 ```text
@@ -161,7 +181,7 @@ HTTP: `GET /api/status?ids=HOST-A,HOST-B` → `{"online":{"HOST-A":true,...}}`, 
 Client → 255.255.255.255:50506 (Windows는 각 네트워크의 브로드캐스트 주소에도)
   {"type":"rd_discover","version":1,"nonce":"16진수"}
 Host → Client (유니캐스트)
-  {"type":"rd_host","version":1,"nonce":"같은 값","host_id":"HOST-...","host_name":"PC 이름","port":50505}
+  {"type":"rd_host","version":1,"nonce":"같은 값","host_id":"HOST-...","host_name":"PC 이름","port":50505,"mac":["AA-BB-..."]}
 ```
 
 - Host는 사설망·루프백 주소의 요청에만, 같은 주소에 초당 5번까지만 응답합니다. 응답에 비밀 정보는 없습니다.

@@ -58,6 +58,9 @@ public sealed class SavedHost
 
     public string? HostId { get; set; }
 
+    /// <summary>Wake-on-LAN용 MAC 주소 (처음 연결하거나 검색할 때 저장)</summary>
+    public List<string> Mac { get; set; } = new();
+
     [JsonIgnore]
     public bool IsInternet => string.IsNullOrWhiteSpace(Address) && !string.IsNullOrWhiteSpace(HostId);
 }

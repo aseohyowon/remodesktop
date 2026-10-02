@@ -69,6 +69,9 @@ public sealed record HostOptions
     /// <summary>Client가 볼 모니터를 바꿀 수 있음 (STEP 9)</summary>
     public bool AllowMonitorSelect { get; init; } = true;
 
+    /// <summary>Client가 이 PC의 해상도를 바꿀 수 있음 (STEP 12). 연결이 끝나면 원래대로 돌아갑니다.</summary>
+    public bool AllowResolutionChange { get; init; } = true;
+
     /// <summary>같은 네트워크의 Client가 이 PC를 자동으로 찾을 수 있음 (STEP 11, UDP)</summary>
     public bool Discoverable { get; init; } = true;
 
@@ -104,6 +107,7 @@ public sealed record HostOptions
                 "--no-audio" => options with { AllowAudio = false },
                 "--allow-power" => options with { AllowPower = true },
                 "--no-discovery" => options with { Discoverable = false },
+                "--no-resolution-change" => options with { AllowResolutionChange = false },
                 _ => throw new ArgumentException($"알 수 없는 옵션입니다: {args[i]}")
             };
         }

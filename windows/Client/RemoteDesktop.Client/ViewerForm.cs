@@ -18,6 +18,7 @@ internal sealed class ViewerForm : Form
     private readonly ToolStrip _toolbar = new() { GripStyle = ToolStripGripStyle.Hidden, RenderMode = ToolStripRenderMode.System };
     private readonly ToolStripLabel _qualityLabel = new() { Alignment = ToolStripItemAlignment.Right, ForeColor = Color.DimGray };
     private readonly ToolStripDropDownButton _monitorButton = new("모니터");
+    private readonly ToolStripDropDownButton _resolutionButton = new("해상도") { Tag = "display" };
     private readonly ToolStripButton _clipboardButton = new("클립보드 공유") { CheckOnClick = true };
     private readonly ToolStripButton _audioButton = new("소리") { CheckOnClick = true };
     private readonly System.Windows.Forms.Timer _titleTimer = new() { Interval = 1000 };
@@ -107,6 +108,10 @@ internal sealed class ViewerForm : Form
             else if (item.Tag is "files")
             {
                 item.Enabled = connection.HasFeature(HostFeatures.FileTransfer);
+            }
+            else if (item.Tag is "display")
+            {
+                item.Visible = connection.HasFeature(HostFeatures.Display);
             }
         }
     }
@@ -239,6 +244,9 @@ internal sealed class ViewerForm : Form
     private void BuildToolbar()
     {
         _toolbar.Items.Add(_monitorButton);
+        _toolbar.Items.Add(_resolutionButton);
+        _resolutionButton.DropDownItems.Add("(불러오는 중...)");
+        _resolutionButton.DropDownOpening += async (_, _) => await LoadResolutionsAsync();
 
         var keys = new ToolStripDropDownButton("특수 키") { Tag = "input" };
         keys.DropDownItems.Add("Ctrl+Alt+Del 안내", null, (_, _) => MessageBox.Show(this,
@@ -288,6 +296,64 @@ internal sealed class ViewerForm : Form
         {
             _monitorButton.DropDownItems.Add(new ToolStripSeparator());
             _monitorButton.DropDownItems.Add("모든 모니터", null, (_, _) => _ = _connection.SendAsync(new SelectMonitorMessage(-1)));
+        }
+    }
+
+    /// <summary>해상도 메뉴를 열 때 Host에서 목록을 받아 채웁니다.</summary>
+    private async Task LoadResolutionsAsync()
+    {
+        DisplayModesMessage modes;
+        try
+        {
+            modes = await _features.GetDisplayModesAsync(_closing.Token);
+        }
+        catch (Exception exception) when (exception is TimeoutException or InvalidOperationException)
+        {
+            _resolutionButton.DropDownItems.Clear();
+            _resolutionButton.DropDownItems.Add(exception.Message).Enabled = false;
+            return;
+        }
+
+        _resolutionButton.DropDownItems.Clear();
+        _resolutionButton.DropDownItems.Add($"원래대로 ({modes.Original.Width}x{modes.Original.Height})", null,
+            async (_, _) => await ChangeResolutionAsync(0, 0));
+
+        // 이 창(원격 화면 영역)에 가장 잘 맞는, 창보다 크지 않은 해상도
+        Size area = _view.ClientSize;
+        DisplayMode? fit = modes.Modes
+            .Where(m => m.Width <= area.Width && m.Height <= area.Height)
+            .OrderByDescending(m => m.Width * m.Height)
+            .FirstOrDefault();
+        if (fit is not null)
+        {
+            _resolutionButton.DropDownItems.Add($"이 창 크기에 맞추기 ({fit.Width}x{fit.Height})", null,
+                async (_, _) => await ChangeResolutionAsync(fit.Width, fit.Height));
+        }
+
+        _resolutionButton.DropDownItems.Add(new ToolStripSeparator());
+        foreach (DisplayMode mode in modes.Modes)
+        {
+            var item = new ToolStripMenuItem($"{mode.Width} x {mode.Height}", null, async (_, _) => await ChangeResolutionAsync(mode.Width, mode.Height))
+            {
+                Checked = mode == modes.Current
+            };
+            _resolutionButton.DropDownItems.Add(item);
+        }
+    }
+
+    private async Task ChangeResolutionAsync(int width, int height)
+    {
+        _qualityLabel.Text = width == 0 ? "원래 해상도로 되돌리는 중..." : $"{width}x{height}로 바꾸는 중...";
+        try
+        {
+            DisplayResultMessage result = await _features.SetResolutionAsync(width, height, _closing.Token);
+            _qualityLabel.Text = result.Success
+                ? $"원격 해상도: {result.Current?.Width}x{result.Current?.Height} (연결을 끊으면 원래대로 돌아갑니다)"
+                : $"실패: {result.Error}";
+        }
+        catch (TimeoutException)
+        {
+            _qualityLabel.Text = "해상도 변경 응답이 없습니다.";
         }
     }
 

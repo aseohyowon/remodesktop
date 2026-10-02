@@ -63,7 +63,7 @@ internal sealed class DiscoveryResponder(HostServer server)
                     continue;
                 }
 
-                byte[] reply = LanDiscovery.CreateReply(probe.Nonce, server.Settings.HostId, Environment.MachineName, server.Options.Port);
+                byte[] reply = LanDiscovery.CreateReply(probe.Nonce, server.Settings.HostId, Environment.MachineName, server.Options.Port, WakeOnLan.LocalMacAddresses());
                 try
                 {
                     await socket.SendAsync(reply, request.RemoteEndPoint, cancellationToken);

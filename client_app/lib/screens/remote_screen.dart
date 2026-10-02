@@ -226,12 +226,71 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         _snack('PC의 클립보드를 이 기기에 복사했습니다 (${text.length}자)');
       case 'power_result':
         _snack(message['success'] == true ? '요청을 보냈습니다: ${message['action']}' : '실패: ${message['error']}');
+      case 'display_modes':
+        _displayModes?.complete(message);
+        _displayModes = null;
+      case 'display_result':
+        if (_displayModes != null) {
+          _displayModes!.complete(message); // 목록 요청이 거부된 경우
+          _displayModes = null;
+        } else {
+          final current = message['current'] as Map<String, dynamic>?;
+          _snack(message['success'] == true
+              ? 'PC 해상도: ${current?['width']}x${current?['height']} (연결을 끊으면 원래대로 돌아갑니다)'
+              : '실패: ${message['error']}');
+        }
     }
   }
 
   void _snack(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 3)));
+  }
+
+  Completer<Map<String, dynamic>>? _displayModes;
+
+  /// PC 해상도 바꾸기 (STEP 12). 연결이 끝나면 PC가 원래 해상도로 되돌립니다.
+  Future<void> _chooseResolution() async {
+    _displayModes = Completer();
+    _connection.send(displayModesRequestMessage());
+    Map<String, dynamic> reply;
+    try {
+      reply = await _displayModes!.future.timeout(const Duration(seconds: 10));
+    } catch (_) {
+      _displayModes = null;
+      _snack('해상도 목록을 받지 못했습니다.');
+      return;
+    }
+    if (reply['type'] != 'display_modes') {
+      _snack('${reply['error'] ?? '해상도를 바꿀 수 없습니다.'}');
+      return;
+    }
+    if (!mounted) return;
+
+    String label(Map<String, dynamic> m) => '${m['width']} x ${m['height']}';
+    final original = reply['original'] as Map<String, dynamic>;
+    final current = reply['current'] as Map<String, dynamic>;
+    final modes = ((reply['modes'] as List?) ?? []).cast<Map<String, dynamic>>();
+    final chosen = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('PC 해상도'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, {'width': 0, 'height': 0}),
+            child: Text('원래대로 (${label(original)})'),
+          ),
+          const Divider(),
+          for (final m in modes)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, m),
+              child: Text(label(m) + (m['width'] == current['width'] && m['height'] == current['height'] ? '  ✓' : '')),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    _connection.send(setResolutionMessage((chosen['width'] as num).toInt(), (chosen['height'] as num).toInt()));
   }
 
   Future<void> _sendClipboard() async {
@@ -780,6 +839,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         setState(() => _commandAsControl = !_commandAsControl);
       case 'monitor':
         unawaited(_chooseMonitor());
+      case 'resolution':
+        unawaited(_chooseResolution());
       case 'clip':
         unawaited(_sendClipboard());
       case 'upload':
@@ -1070,6 +1131,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         if (_isMacOS)
           CheckedPopupMenuItem(value: 'cmd', checked: _commandAsControl, child: const Text('⌘ Command → Ctrl')),
         if (_connection.monitors.isNotEmpty) const PopupMenuItem(value: 'monitor', child: Text('모니터 선택')),
+        if (_connection.hasFeature('display')) const PopupMenuItem(value: 'resolution', child: Text('PC 해상도')),
         if (_connection.hasFeature('clipboard')) const PopupMenuItem(value: 'clip', child: Text('내 클립보드를 PC로 보내기')),
         if (_connection.hasFeature('file_transfer')) ...[
           const PopupMenuItem(value: 'upload', child: Text('파일 보내기')),

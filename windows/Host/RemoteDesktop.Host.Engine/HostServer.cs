@@ -67,6 +67,15 @@ public sealed class HostServer
     /// <summary>클립보드 접근 (테스트에서 교체)</summary>
     public Func<IClipboardAccess> ClipboardFactory { get; set; } = () => new WindowsClipboard();
 
+    /// <summary>해상도 변경 (테스트에서 교체)</summary>
+    public IDisplayController DisplayController { get; set; } = new WindowsDisplayController();
+
+    /// <summary>모니터 영역 → 장치 이름 (테스트에서 교체)</summary>
+    public Func<Rectangle, string?> MonitorDeviceName { get; set; } =
+        bounds => Screen.AllScreens.FirstOrDefault(screen => screen.Bounds == bounds)?.DeviceName;
+
+    internal bool CanChangeResolution => Options.AllowResolutionChange && !Options.ViewOnly;
+
     public bool HasActiveSession => Volatile.Read(ref _streamingSessions) == 1;
 
     public static IEnumerable<IPAddress> GetLanAddresses() =>
@@ -330,6 +339,7 @@ public sealed class HostServer
         if (Options.AllowAudio) features.Add(HostFeatures.Audio);
         if (!Options.ViewOnly) features.Add(HostFeatures.Power);
         if (Options.AllowMonitorSelect) features.Add(HostFeatures.MonitorSelect);
+        if (CanChangeResolution) features.Add(HostFeatures.Display);
         return features.ToArray();
     }
 

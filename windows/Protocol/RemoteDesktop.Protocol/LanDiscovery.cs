@@ -26,10 +26,11 @@ public static class LanDiscovery
 
     public sealed record Probe(string Type, int Version, string Nonce);
 
-    public sealed record HostReply(string Type, int Version, string Nonce, string HostId, string HostName, int Port);
+    /// <summary>mac: Wake-on-LAN용 MAC 주소 (예: "AA-BB-CC-DD-EE-FF")</summary>
+    public sealed record HostReply(string Type, int Version, string Nonce, string HostId, string HostName, int Port, string[]? Mac = null);
 
     /// <summary>찾은 PC</summary>
-    public sealed record FoundHost(string HostId, string HostName, IPAddress Address, int Port);
+    public sealed record FoundHost(string HostId, string HostName, IPAddress Address, int Port, string[] Mac);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -53,8 +54,8 @@ public static class LanDiscovery
         }
     }
 
-    public static byte[] CreateReply(string nonce, string hostId, string hostName, int port) =>
-        JsonSerializer.SerializeToUtf8Bytes(new HostReply("rd_host", 1, nonce, hostId, hostName, port), JsonOptions);
+    public static byte[] CreateReply(string nonce, string hostId, string hostName, int port, string[]? mac = null) =>
+        JsonSerializer.SerializeToUtf8Bytes(new HostReply("rd_host", 1, nonce, hostId, hostName, port, mac), JsonOptions);
 
     public static HostReply? ParseReply(ReadOnlySpan<byte> data, string expectedNonce)
     {
@@ -131,7 +132,8 @@ public static class LanDiscovery
                 if (ParseReply(result.Buffer, nonce) is { } reply)
                 {
                     // 같은 Host가 여러 주소로 답하면 처음 것만 (보통 가장 가까운 경로)
-                    found.TryAdd(reply.HostId, new FoundHost(reply.HostId, Clean(reply.HostName), result.RemoteEndPoint.Address, reply.Port));
+                    string[] mac = (reply.Mac ?? []).Where(WakeOnLan.IsValidMac).Take(8).ToArray();
+                    found.TryAdd(reply.HostId, new FoundHost(reply.HostId, Clean(reply.HostName), result.RemoteEndPoint.Address, reply.Port, mac));
                 }
             }
         }

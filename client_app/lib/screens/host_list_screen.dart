@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import '../protocol/auth.dart';
 import '../protocol/connection.dart';
 import '../protocol/discovery.dart';
+import '../protocol/wake_on_lan.dart';
 import '../protocol/protocol.dart';
 import '../protocol/webrtc_transport.dart';
 import '../storage/host_store.dart';
@@ -91,6 +92,17 @@ class _HostListScreenState extends State<HostListScreen> {
     });
   }
 
+  /// 꺼진 PC를 같은 네트워크에서 깨웁니다 (STEP 12)
+  Future<void> _wake(SavedHost host) async {
+    final sent = await wakeOnLan(host.mac);
+    _showMessage(sent == 0
+        ? 'MAC 주소가 올바르지 않습니다.'
+        : '${host.name}에 켜기 신호를 보냈습니다. 30초~1분 뒤 Online이 되는지 확인하세요. (같은 Wi-Fi에서만, PC에서 Wake-on-LAN 설정 필요)');
+    Future<void>.delayed(const Duration(seconds: 30), () {
+      if (mounted) _refreshStatus();
+    });
+  }
+
   /// 같은 Wi-Fi의 PC를 찾아 목록에 추가 (STEP 11)
   Future<void> _discover() async {
     _showMessage('같은 네트워크에서 PC를 찾는 중...');
@@ -125,6 +137,7 @@ class _HostListScreenState extends State<HostListScreen> {
           address: f.address,
           port: f.port,
           hostId: f.hostId,
+          mac: f.mac,
         ));
       }
     });
@@ -316,11 +329,14 @@ class _HostListScreenState extends State<HostListScreen> {
     }
     final connection = result;
 
-    // 처음 연결에 성공하면 Host ID를 기억해 둡니다.
-    if (host.hostId != connection.hostId) {
+    // 처음 연결에 성공하면 Host ID와 MAC 주소(Wake-on-LAN)를 기억해 둡니다.
+    if (host.hostId != connection.hostId || (connection.macAddresses.isNotEmpty && host.mac.join() != connection.macAddresses.join())) {
       final index = _hosts.indexWhere((h) => h.id == host.id);
       if (index >= 0) {
-        _hosts[index] = host.copyWith(hostId: connection.hostId);
+        _hosts[index] = host.copyWith(
+          hostId: connection.hostId,
+          mac: connection.macAddresses.isNotEmpty ? connection.macAddresses : null,
+        );
         await _store.saveAll(_hosts);
       }
     }
@@ -413,10 +429,15 @@ class _HostListScreenState extends State<HostListScreen> {
           const SizedBox(width: 4),
           Text(label, style: TextStyle(color: color)),
           PopupMenuButton<String>(
-            onSelected: (value) => value == 'edit' ? _editHost(host) : _deleteHost(host),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'edit', child: Text('편집')),
-              PopupMenuItem(value: 'delete', child: Text('삭제')),
+            onSelected: (value) => switch (value) {
+              'edit' => _editHost(host),
+              'wake' => _wake(host),
+              _ => _deleteHost(host),
+            },
+            itemBuilder: (_) => [
+              if (host.mac.isNotEmpty) const PopupMenuItem(value: 'wake', child: Text('PC 켜기 (Wake-on-LAN)')),
+              const PopupMenuItem(value: 'edit', child: Text('편집')),
+              const PopupMenuItem(value: 'delete', child: Text('삭제')),
             ],
           ),
         ],

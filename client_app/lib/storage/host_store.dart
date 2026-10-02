@@ -10,7 +10,7 @@ import '../protocol/connection.dart';
 import '../protocol/protocol.dart';
 
 class SavedHost {
-  SavedHost({required this.id, required this.name, required this.address, this.port = defaultPort, this.hostId});
+  SavedHost({required this.id, required this.name, required this.address, this.port = defaultPort, this.hostId, this.mac = const []});
 
   final String id;
   final String name;
@@ -23,15 +23,19 @@ class SavedHost {
 
   bool get isInternet => address.isEmpty && (hostId?.isNotEmpty ?? false);
 
-  SavedHost copyWith({String? name, String? address, int? port, String? hostId}) => SavedHost(
+  /// Wake-on-LAN용 MAC 주소 (처음 연결하거나 검색할 때 저장)
+  final List<String> mac;
+
+  SavedHost copyWith({String? name, String? address, int? port, String? hostId, List<String>? mac}) => SavedHost(
         id: id,
         name: name ?? this.name,
         address: address ?? this.address,
         port: port ?? this.port,
         hostId: hostId ?? this.hostId,
+        mac: mac ?? this.mac,
       );
 
-  Map<String, Object?> toJson() => {'id': id, 'name': name, 'address': address, 'port': port, 'host_id': hostId};
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'address': address, 'port': port, 'host_id': hostId, 'mac': mac};
 
   static SavedHost fromJson(Map<String, dynamic> json) => SavedHost(
         id: json['id'] as String,
@@ -39,6 +43,7 @@ class SavedHost {
         address: json['address'] as String,
         port: (json['port'] as num?)?.toInt() ?? defaultPort,
         hostId: json['host_id'] as String?,
+        mac: ((json['mac'] as List?) ?? []).cast<String>(),
       );
 }
 

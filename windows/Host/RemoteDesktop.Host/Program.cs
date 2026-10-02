@@ -139,6 +139,7 @@ internal static class Program
               --no-audio           소리 전송 끄기
               --allow-power        원격 로그아웃/재시작/종료 허용 (잠금은 항상 허용)
               --no-discovery       같은 네트워크 자동 검색에 응답하지 않음
+              --no-resolution-change  Client가 이 PC의 해상도를 바꾸지 못하게 함
               --verbose            상세 로그
 
             Windows 창 앱(RemoteDesktop.exe)을 쓰면 위 설정을 화면에서 바꿀 수 있습니다.

@@ -18,6 +18,8 @@ public sealed class ClientFeatures : IDisposable
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<FileResultMessage>> _downloads = new();
     private TaskCompletionSource<FileListMessage>? _fileList;
     private TaskCompletionSource<PowerResultMessage>? _power;
+    private TaskCompletionSource<DisplayModesMessage>? _displayModes;
+    private TaskCompletionSource<DisplayResultMessage>? _displayResult;
     private FileReceiver? _downloadReceiver;
     private string? _downloadFolder;
     private ClipboardSync? _clipboard;
@@ -105,6 +107,30 @@ public sealed class ClientFeatures : IDisposable
         return await _power.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
     }
 
+    // ---------------- 해상도 (STEP 12) ----------------
+
+    public async Task<DisplayModesMessage> GetDisplayModesAsync(CancellationToken cancellationToken)
+    {
+        _displayModes = new TaskCompletionSource<DisplayModesMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _displayResult = new TaskCompletionSource<DisplayResultMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _connection.SendAsync(new DisplayModesRequestMessage());
+        Task finished = await Task.WhenAny(_displayModes.Task, _displayResult.Task).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        if (finished == _displayResult.Task)
+        {
+            throw new InvalidOperationException(_displayResult.Task.Result.Error ?? "해상도 목록을 받을 수 없습니다.");
+        }
+
+        return await _displayModes.Task;
+    }
+
+    /// <summary>width/height가 0이면 원래 해상도로</summary>
+    public async Task<DisplayResultMessage> SetResolutionAsync(int width, int height, CancellationToken cancellationToken)
+    {
+        _displayResult = new TaskCompletionSource<DisplayResultMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _connection.SendAsync(new SetResolutionMessage(width, height));
+        return await _displayResult.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+    }
+
     // ---------------- 소리 ----------------
 
     public bool AudioEnabled => _audio is not null;
@@ -169,6 +195,14 @@ public sealed class ClientFeatures : IDisposable
 
             case PowerResultMessage power:
                 _power?.TrySetResult(power);
+                break;
+
+            case DisplayModesMessage modes:
+                _displayModes?.TrySetResult(modes);
+                break;
+
+            case DisplayResultMessage result:
+                _displayResult?.TrySetResult(result);
                 break;
 
             case AudioFormatMessage format:

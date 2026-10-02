@@ -131,7 +131,7 @@ class TlsTransport implements ClientTransport {
 
 class RemoteHostConnection {
   RemoteHostConnection._(this._transport, this._messages, this.hostId, this.hostName, this.screenWidth, this.screenHeight, this.method,
-      this.monitors, this.features);
+      this.monitors, this.features, this.macAddresses);
 
   final ClientTransport _transport;
   final StreamQueue<ReceivedMessage> _messages;
@@ -148,6 +148,9 @@ class RemoteHostConnection {
   final List<String> features;
 
   bool hasFeature(String feature) => features.contains(feature);
+
+  /// Host의 MAC 주소 (Wake-on-LAN)
+  final List<String> macAddresses;
 
   final _frames = StreamController<VideoFrame>();
   final _controls = StreamController<Map<String, dynamic>>.broadcast();
@@ -321,6 +324,7 @@ class RemoteHostConnection {
         method,
         ((result['monitors'] as List?) ?? []).cast<Map<String, dynamic>>(),
         ((result['features'] as List?) ?? []).cast<String>(),
+        ((result['mac_addresses'] as List?) ?? []).cast<String>().take(8).toList(),
       );
       unawaited(connection._receiveLoop());
       return connection;

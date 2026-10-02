@@ -64,6 +64,8 @@ remodesktop/
 |---|---|
 | `HostServer` | LAN 리스너(사설망만, 동시 핸드셰이크 제한), 시그널링 연결, 세션 슬롯(1명), 모니터 목록 |
 | `DiscoveryResponder` | LAN 자동 검색 응답 (UDP 50506, 사설망만, 초당 5회 제한) |
+| `DisplayAndPower` | 해상도 변경(`ChangeDisplaySettingsEx`, CDS_TEST 확인 → 동적 변경 → 세션 끝에 복원), 세션 중 절전 방지(`SleepBlocker`) |
+| `WakeOnLan` (Protocol) | MAC 주소 확인, 매직 패킷 만들기·보내기 |
 | `SignalingHost` | 시그널링 서버 등록(ECDSA 서명), 연결 요청마다 WebRTC offer 생성, 재접속(최대 60초 간격) |
 | `HostAuthenticator` | 인증 절차, 2단계 인증, 승인, 장치 등록, 실패 지연/차단, 코덱 협상 |
 | `HostSession` | 세션 실행: 영상·입력·기능, 세션 만료, Host 사용자의 연결 끊기 |

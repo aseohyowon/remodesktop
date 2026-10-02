@@ -80,7 +80,11 @@ public sealed class RemoteHostConnection : IDisposable
         Monitors = result.Monitors ?? [];
         VideoCodecName = result.VideoCodec ?? VideoCodecNames.Jpeg;
         Features = result.Features ?? [];
+        MacAddresses = (result.MacAddresses ?? []).Where(WakeOnLan.IsValidMac).Take(8).ToArray();
     }
+
+    /// <summary>Host의 MAC 주소 (Wake-on-LAN으로 켤 때 사용)</summary>
+    public string[] MacAddresses { get; }
 
     /// <summary>Host 모니터 목록 (모니터 선택 기능이 꺼져 있으면 비어 있음)</summary>
     public MonitorInfo[] Monitors { get; }

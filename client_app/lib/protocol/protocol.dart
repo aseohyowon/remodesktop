@@ -257,6 +257,13 @@ Map<String, Object?> powerActionMessage(String action) => {'type': 'power_action
 
 Map<String, Object?> keyframeRequestMessage() => {'type': 'keyframe_request'};
 
+// ---- STEP 12 ----
+
+Map<String, Object?> displayModesRequestMessage() => {'type': 'display_modes_request'};
+
+/// width/height가 0이면 원래 해상도로
+Map<String, Object?> setResolutionMessage(int width, int height) => {'type': 'set_resolution', 'width': width, 'height': height};
+
 /// 파일 조각 바이너리 메시지
 Uint8List encodeFileChunk(int transferId, int offset, List<int> data) {
   final payload = Uint8List(12 + data.length);

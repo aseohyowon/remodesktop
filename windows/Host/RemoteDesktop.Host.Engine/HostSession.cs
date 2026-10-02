@@ -69,8 +69,11 @@ internal sealed class HostSession
         var input = _server.Options.ViewOnly ? null : new InputInjector(_server.CaptureBounds);
         using var video = new VideoStreamer(channel, _server.Options, _server.CaptureBounds, auth.Codec);
         using var features = new SessionFeatures(_server, channel, _transport.RemoteDescription, auth.ClientName, token);
+        using var display = new DisplaySession(_server.DisplayController); // 세션이 끝나면 바꾼 해상도를 되돌림
+        using var sleepBlocker = new SleepBlocker();                        // 연결 중 절전 방지
+        var view = new ViewState(_server.CaptureBounds);
 
-        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, features, token);
+        Task<string> receiveTask = ReceiveLoopAsync(channel, video, input, features, display, view, token);
         Task sendTask = Task.Run(() => video.RunAsync(token), token);
         Task expiryTask = Task.Delay(_server.Options.MaxSessionDuration, token);
         Task kickTask = Task.Delay(Timeout.Infinite, hostUserDisconnect.Token);
@@ -127,7 +130,22 @@ internal sealed class HostSession
         return reason;
     }
 
-    private async Task<string> ReceiveLoopAsync(MessageChannel channel, VideoStreamer video, InputInjector? input, SessionFeatures features, CancellationToken cancellationToken)
+    /// <summary>지금 보고 있는 모니터 영역 (모니터 선택·해상도 변경으로 바뀜)</summary>
+    private sealed class ViewState(System.Drawing.Rectangle bounds)
+    {
+        public System.Drawing.Rectangle Bounds { get; set; } = bounds;
+
+        public Dictionary<string, System.Drawing.Rectangle> Originals { get; } = new();
+    }
+
+    private async Task<string> ReceiveLoopAsync(
+        MessageChannel channel,
+        VideoStreamer video,
+        InputInjector? input,
+        SessionFeatures features,
+        DisplaySession display,
+        ViewState view,
+        CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -151,10 +169,39 @@ internal sealed class HostSession
                 case SelectMonitorMessage select when _server.Options.AllowMonitorSelect:
                     if (HostServer.MonitorBounds(select.Index) is { } bounds)
                     {
+                        view.Bounds = bounds;
                         video.SwitchBounds(bounds);
                         input?.SetBounds(bounds); // 입력 좌표도 새 모니터 기준으로
                     }
 
+                    break;
+
+                case DisplayModesRequestMessage when _server.CanChangeResolution:
+                    await SendDisplayAsync(channel, () =>
+                    {
+                        string device = DeviceFor(view.Bounds);
+                        System.Drawing.Rectangle original = view.Originals.TryGetValue(device, out var saved) ? saved : view.Bounds;
+                        return display.Describe(device, original);
+                    }, cancellationToken);
+                    break;
+
+                case SetResolutionMessage set when _server.CanChangeResolution:
+                    await SendDisplayAsync(channel, () =>
+                    {
+                        string device = DeviceFor(view.Bounds);
+                        view.Originals.TryAdd(device, view.Bounds);
+                        var (bounds, error) = display.Change(device, new DisplayMode(set.Width, set.Height));
+                        if (bounds is not { } changed)
+                        {
+                            return new DisplayResultMessage(false, null, error);
+                        }
+
+                        view.Bounds = changed;
+                        video.SwitchBounds(changed);
+                        input?.SetBounds(changed);
+                        Log.Info($"Resolution changed to {changed.Width}x{changed.Height} by client");
+                        return new DisplayResultMessage(true, new DisplayMode(changed.Width, changed.Height));
+                    }, cancellationToken);
                     break;
 
                 case ByeMessage bye:
@@ -171,6 +218,25 @@ internal sealed class HostSession
         }
 
         return "연결 종료";
+    }
+
+    /// <summary>모니터 영역에 해당하는 장치 이름. 여러 모니터를 합친 화면이면 해상도를 바꿀 수 없습니다.</summary>
+    private string DeviceFor(System.Drawing.Rectangle bounds) =>
+        _server.MonitorDeviceName(bounds) ?? throw new InvalidOperationException("모든 모니터 보기에서는 해상도를 바꿀 수 없습니다. 모니터 하나를 선택하세요.");
+
+    private static async Task SendDisplayAsync(MessageChannel channel, Func<ControlMessage> action, CancellationToken cancellationToken)
+    {
+        ControlMessage reply;
+        try
+        {
+            reply = action();
+        }
+        catch (InvalidOperationException exception)
+        {
+            reply = new DisplayResultMessage(false, null, exception.Message);
+        }
+
+        await channel.SendControlAsync(reply, cancellationToken);
     }
 
     /// <summary>
